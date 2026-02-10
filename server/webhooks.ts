@@ -1,3 +1,18 @@
+/**
+ * LEGAL COMPLIANCE NOTICE
+ * 
+ * This module handles webhook reception for the Internal Payment Orchestrator.
+ * This service does NOT handle, store, or move money.
+ * Money flows directly from customer → operator/merchant.
+ * This service only orchestrates payment events and maintains audit trails.
+ * 
+ * All webhooks must be:
+ * - Cryptographically verified (HMAC-SHA256)
+ * - Logged immutably for audit
+ * - Idempotent (safe to retry)
+ * - Non-repudiable (signature-based)
+ */
+
 import { Router, Request, Response } from "express";
 import * as db from "./db";
 import * as validators from "./validators";

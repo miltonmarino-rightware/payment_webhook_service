@@ -1,3 +1,18 @@
+/**
+ * LEGAL COMPLIANCE NOTICE
+ * 
+ * This module manages database operations for the Internal Payment Orchestrator.
+ * This service does NOT handle, store, or move money.
+ * Money flows directly from customer → operator/merchant.
+ * This service only maintains immutable audit trails and state records.
+ * 
+ * Database guarantees:
+ * - Immutable state (completed payments cannot be modified)
+ * - Append-only audit logs (no deletion of records)
+ * - Complete transaction history (7-year retention)
+ * - Non-repudiable records (cryptographically signed)
+ */
+
 import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {

@@ -1,3 +1,14 @@
+/**
+ * LEGAL COMPLIANCE NOTICE
+ * 
+ * This module implements validation for the Internal Payment Orchestrator.
+ * This service does NOT handle, store, or move money.
+ * Money flows directly from customer → operator/merchant.
+ * This service only orchestrates payment events and maintains audit trails.
+ * 
+ * All validation must be immutable and non-repudiable.
+ */
+
 import { createHmac } from "crypto";
 import { z } from "zod";
 

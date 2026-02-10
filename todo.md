@@ -32,3 +32,15 @@
 - [ ] Set up logging and monitoring
 - [ ] Create health check endpoint
 - [ ] Deploy to production
+
+## Phase 6: Refinement - Private Backend Service
+- [x] Update README to emphasize private backend service (no UI)
+- [x] Rename service to "Internal Payment Orchestrator" in documentation
+- [x] Remove/hide UI layer from backend (placeholder only)
+- [x] Add legal compliance notices in code
+- [x] Implement immutable state enforcement (via design)
+- [x] Add multi-tenant support (externalSystemId)
+- [x] Enhance audit logging with mandatory fields
+- [x] Create LEGAL_COMPLIANCE.md document
+- [x] Update API documentation with compliance notes
+- [x] Add internal-only deployment warnings

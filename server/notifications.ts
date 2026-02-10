@@ -1,3 +1,18 @@
+/**
+ * LEGAL COMPLIANCE NOTICE
+ * 
+ * This module handles external system notifications for the Internal Payment Orchestrator.
+ * This service does NOT handle, store, or move money.
+ * Money flows directly from customer → operator/merchant.
+ * This service only notifies internal systems of payment outcomes.
+ * 
+ * All notifications must be:
+ * - Cryptographically signed (HMAC-SHA256)
+ * - Idempotent (safe to retry)
+ * - Logged for audit trail
+ * - Non-repudiable (signature-based)
+ */
+
 import axios from "axios";
 import * as db from "./db";
 import * as validators from "./validators";

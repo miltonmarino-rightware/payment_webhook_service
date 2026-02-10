@@ -1,10 +1,14 @@
-# Payment Webhook Service - API Documentation
+# Internal Payment Orchestrator - API Documentation
+
+**⚠️ PRIVATE BACKEND SERVICE - NOT FOR PUBLIC USE**
 
 ## Overview
 
-This is a private backend service for processing payment webhooks from operators like mPesa. The system validates transactions, updates payment states, and notifies external systems without handling money directly.
+The **Internal Payment Orchestrator** is a private, internal-only backend service for coordinating payment transactions. This service does NOT handle, store, or move money. It only orchestrates payment events between your internal systems and external payment operators.
 
-**Base URL**: `http://localhost:3000`
+**Money flows directly from customer → operator/merchant. This service never touches funds.**
+
+**Base URL**: `http://localhost:3000` (Internal Network Only)
 
 ---
 
@@ -400,11 +404,22 @@ Check the server console for detailed logs:
 
 ## Compliance & Regulations
 
-- **PCI DSS**: This system is NOT PCI compliant (does not handle card data)
-- **Payment Regulations**: Compliant with Mozambique payment regulations
-- **Data Retention**: 7-year audit trail maintained
+### Critical Legal Notice
+
+This service:
+- **Does NOT** receive, store, or move money
+- **Does NOT** maintain customer balances or wallets
+- **Does NOT** operate as a payment processor or gateway
+- **ONLY** orchestrates payment events and maintains audit trails
+
+### Regulatory Alignment
+
+- **PCI DSS**: Not applicable (no card data handled)
+- **Mozambique Payment Regulations**: Compliant (event orchestration only)
+- **Data Retention**: 7-year audit trail for compliance
 - **Audit Trail**: Complete immutable transaction log
 - **Non-Repudiation**: Signature-based verification ensures operator accountability
+- **Deployment**: Internal network only (not public-facing)
 
 ---
 

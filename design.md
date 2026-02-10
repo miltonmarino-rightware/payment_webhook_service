@@ -1,8 +1,12 @@
-# Payment Webhook Service - Design Documentation
+# Internal Payment Orchestrator - Design Documentation
+
+**⚠️ PRIVATE BACKEND SERVICE - NOT FOR PUBLIC USE**
 
 ## Overview
 
-This is a **private backend service** for processing payment webhooks from operators like mPesa. The system validates transactions, updates payment states, and notifies external systems without handling money directly.
+The **Internal Payment Orchestrator** is a **private, internal-only backend service** for coordinating payment transactions within your organization. This service does NOT handle, store, or move money. It only orchestrates payment events between your internal systems and external payment operators (e.g., mPesa, Stripe).
+
+**Money flows directly from customer → operator/merchant. This service never touches funds.**
 
 ---
 
