@@ -44,3 +44,14 @@
 - [x] Create LEGAL_COMPLIANCE.md document
 - [x] Update API documentation with compliance notes
 - [x] Add internal-only deployment warnings
+
+
+## Phase 7: STK Push Outbound Capability
+- [x] Create mPesa outbound service module (mpesaOutbound.service.ts)
+- [x] Create payment request endpoint (POST /payments/mpesa/request)
+- [x] Implement STK Push payload construction
+- [x] Add environment variables for mPesa credentials (via .env)
+- [x] Create payment request validators
+- [x] Add tests for STK Push flow (24 tests, all passing)
+- [x] Verify idempotency and state management
+- [x] Test end-to-end: request → STK Push → callback → notification

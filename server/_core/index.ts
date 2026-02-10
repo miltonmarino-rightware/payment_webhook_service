@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import webhookRoutes from "../webhooks";
+import paymentsRoutes from "../payments";
 import { startNotificationProcessor } from "../notifications";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -60,6 +61,9 @@ async function startServer() {
 
   // Register webhook routes
   app.use("/webhooks", webhookRoutes);
+
+  // Register payment routes
+  app.use("/payments", paymentsRoutes);
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
