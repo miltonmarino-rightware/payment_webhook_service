@@ -6,6 +6,8 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import webhookRoutes from "../webhooks";
+import { startNotificationProcessor } from "../notifications";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -56,6 +58,9 @@ async function startServer() {
 
   registerOAuthRoutes(app);
 
+  // Register webhook routes
+  app.use("/webhooks", webhookRoutes);
+
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
   });
@@ -78,6 +83,9 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`[api] server listening on port ${port}`);
   });
+
+  // Start notification processor
+  startNotificationProcessor(60000); // Check every 60 seconds
 }
 
 startServer().catch(console.error);
