@@ -55,3 +55,13 @@
 - [x] Add tests for STK Push flow (24 tests, all passing)
 - [x] Verify idempotency and state management
 - [x] Test end-to-end: request → STK Push → callback → notification
+
+
+## Phase 8: Security Hardening - HMAC-SHA256 Signature Verification
+- [x] Create HMAC-SHA256 signature verification middleware
+- [x] Implement timing-safe signature comparison
+- [x] Add replay attack protection with timestamp validation
+- [x] Integrate middleware with /webhooks/mpesa endpoint
+- [x] Add security audit logging (SIGNATURE_VALID, SIGNATURE_INVALID, REPLAY_ATTACK_BLOCKED)
+- [x] Create comprehensive security tests (31 tests, all passing)
+- [x] Verify all tests pass and TypeScript clean (75 tests total passing)

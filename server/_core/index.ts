@@ -9,6 +9,8 @@ import { createContext } from "./context";
 import webhookRoutes from "../webhooks";
 import paymentsRoutes from "../payments";
 import { startNotificationProcessor } from "../notifications";
+import { mpesaSignatureMiddleware, defaultMpesaSignatureConfig, createSignatureAuditLogger } from "../security/mpesaSignature.middleware";
+import * as db from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -54,15 +56,44 @@ async function startServer() {
     next();
   });
 
+  // Apply raw body capture BEFORE JSON parsing for signature verification
+  app.use(express.raw({ type: "application/json", limit: "50mb" }), (req, res, next) => {
+    // Store raw body for signature verification
+    if (req.body instanceof Buffer) {
+      (req as any).rawBody = req.body;
+    }
+    next();
+  });
+
+  // Apply signature verification middleware
+  const signatureAuditLogger = createSignatureAuditLogger(
+    async (event: string, details: Record<string, unknown>) => {
+      try {
+        await db.logTransaction({
+          paymentId: 0,
+          eventType: event,
+          details,
+          ipAddress: (details.ipAddress as string) || "unknown",
+          userAgent: "webhook-security",
+        });
+      } catch (error) {
+        console.error(`[SECURITY] Failed to log ${event}:`, error);
+      }
+    }
+  );
+
+  app.use(mpesaSignatureMiddleware(defaultMpesaSignatureConfig, signatureAuditLogger));
+
+  // Parse JSON after signature verification
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   registerOAuthRoutes(app);
 
-  // Register webhook routes
+  // Register webhook routes (signature verification applied above)
   app.use("/webhooks", webhookRoutes);
 
-  // Register payment routes
+  // Register payment routes (no signature verification needed - internal only)
   app.use("/payments", paymentsRoutes);
 
   app.get("/api/health", (_req, res) => {
