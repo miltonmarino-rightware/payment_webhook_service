@@ -65,3 +65,14 @@
 - [x] Add security audit logging (SIGNATURE_VALID, SIGNATURE_INVALID, REPLAY_ATTACK_BLOCKED)
 - [x] Create comprehensive security tests (31 tests, all passing)
 - [x] Verify all tests pass and TypeScript clean (75 tests total passing)
+
+
+## Phase 9: Outbound Notification Signing - HMAC-SHA256
+- [x] Create outbound notification signing service (notificationSigning.service.ts)
+- [x] Implement per-system secret management (INTERNAL_WEBHOOK_SECRET_<systemId>)
+- [x] Add signature generation to notification payload
+- [x] Integrate with existing notification retry logic
+- [x] Add audit logging (OUTBOUND_SIGNATURE_CREATED, OUTBOUND_NOTIFICATION_SIGNED)
+- [x] Create comprehensive tests for outbound signatures (26 tests, all passing)
+- [x] Verify idempotency and retry behavior with signatures
+- [x] Verify all tests pass and TypeScript clean (101 tests total passing)

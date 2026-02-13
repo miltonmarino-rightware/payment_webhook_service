@@ -17,6 +17,11 @@ import axios from "axios";
 import * as db from "./db";
 import * as validators from "./validators";
 import { createHmac } from "crypto";
+import {
+  signNotification,
+  buildSignedNotification,
+  defaultNotificationSigningConfig,
+} from "./security/notificationSigning.service";
 
 /**
  * Send notification to external system about payment status
@@ -35,37 +40,37 @@ export async function notifyExternalSystem(paymentId: number): Promise<boolean> 
       return false;
     }
 
-    // Build notification payload
-    const payload = {
-      event: `payment.${payment.status.toLowerCase()}`,
+    // Build and sign notification payload
+    const { payload, signature, headers } = buildSignedNotification(
+      {
+        id: payment.id,
+        transactionId: payment.transactionId,
+        status: payment.status,
+        amount: payment.amount,
+        currency: payment.currency,
+        externalSystemId: payment.externalSystemId,
+      },
+      payment.externalSystemId,
+      defaultNotificationSigningConfig
+    );
+
+    // Log signature creation
+    await db.logTransaction({
       paymentId: payment.id,
-      transactionId: payment.transactionId,
-      status: payment.status,
-      amount: payment.amount,
-      currency: payment.currency,
-      externalSystemId: payment.externalSystemId,
-      timestamp: new Date().toISOString(),
-    };
-
-    // Sign payload
-    const secret = process.env.NOTIFICATION_SECRET || "default-secret";
-    const signature = createHmac("sha256", secret)
-      .update(JSON.stringify(payload))
-      .digest("hex");
-
-    const payloadWithSignature = {
-      ...payload,
-      signature,
-    };
+      eventType: "OUTBOUND_SIGNATURE_CREATED",
+      details: {
+        externalSystemId: payment.externalSystemId,
+        signatureHash: signature.substring(0, 8),
+      },
+      ipAddress: "internal",
+      userAgent: "notification-service",
+    });
 
     // Send notification
     try {
-      const response = await axios.post(notification.externalSystemWebhook, payloadWithSignature, {
+      const response = await axios.post(notification.externalSystemWebhook, payload, {
         timeout: 10000,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Webhook-Signature": signature,
-        },
+        headers,
       });
 
       // Update notification status
@@ -79,11 +84,15 @@ export async function notifyExternalSystem(paymentId: number): Promise<boolean> 
       // Log successful notification
       await db.logTransaction({
         paymentId: payment.id,
-        eventType: "NOTIFICATION_SENT",
+        eventType: "OUTBOUND_NOTIFICATION_SIGNED",
         details: {
+          externalSystemId: payment.externalSystemId,
           externalSystemWebhook: notification.externalSystemWebhook,
           responseStatus: response.status,
+          signatureHash: signature.substring(0, 8),
         },
+        ipAddress: "internal",
+        userAgent: "notification-service",
       });
 
       console.log(`[Notification] Successfully notified external system for payment ${paymentId}`);
@@ -106,6 +115,21 @@ export async function notifyExternalSystem(paymentId: number): Promise<boolean> 
         const nextRetryTime = validators.calculateNextRetryTime(notification.attemptCount);
         await db.incrementNotificationAttempt(notification.id, nextRetryTime);
 
+        // Log retry with signature info
+        await db.logTransaction({
+          paymentId: payment.id,
+          eventType: "NOTIFICATION_RETRY_SCHEDULED",
+          details: {
+            externalSystemId: payment.externalSystemId,
+            error: errorMessage,
+            attemptCount: notification.attemptCount,
+            nextRetryAt: nextRetryTime,
+            signatureHash: signature.substring(0, 8),
+          },
+          ipAddress: "internal",
+          userAgent: "notification-service",
+        });
+
         console.log(
           `[Notification] Failed to notify external system for payment ${paymentId}, will retry at ${nextRetryTime}`
         );
@@ -114,15 +138,19 @@ export async function notifyExternalSystem(paymentId: number): Promise<boolean> 
           `[Notification] Max retry attempts reached for payment ${paymentId}, giving up`
         );
 
-        // Log final failure
+        // Log final failure with signature info
         await db.logTransaction({
           paymentId: payment.id,
           eventType: "NOTIFICATION_FAILED",
           details: {
+            externalSystemId: payment.externalSystemId,
             externalSystemWebhook: notification.externalSystemWebhook,
             error: errorMessage,
             attemptCount: notification.attemptCount,
+            signatureHash: signature.substring(0, 8),
           },
+          ipAddress: "internal",
+          userAgent: "notification-service",
         });
       }
 
