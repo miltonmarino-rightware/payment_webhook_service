@@ -76,3 +76,17 @@
 - [x] Create comprehensive tests for outbound signatures (26 tests, all passing)
 - [x] Verify idempotency and retry behavior with signatures
 - [x] Verify all tests pass and TypeScript clean (101 tests total passing)
+
+
+## Phase 10: Enterprise Rate Limiting & Abuse Detection
+- [x] Create Redis-based rate limiting service (rateLimiting.service.ts)
+- [x] Implement sliding window algorithm with atomic operations
+- [x] Create inbound webhook rate limiting middleware
+- [x] Implement signature failure escalation (3x 401 → 10min block)
+- [x] Create outbound notification rate limiter per system
+- [x] Implement circuit breaker for notification failures
+- [x] Create abuse detection engine (abuseDetection.service.ts)
+- [x] Add security metrics endpoint (/internal/security/metrics)
+- [x] Create structured security logging
+- [x] Add 40+ comprehensive tests (129 tests, all passing)
+- [x] Verify all tests pass and TypeScript clean
