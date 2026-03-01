@@ -104,3 +104,12 @@
 - [x] Create internal compliance audit status endpoints
 - [x] Create comprehensive audit and compliance tests (151 tests, all passing)
 - [x] Verify all tests pass and TypeScript clean
+
+
+## Phase 12: Compliance Pipeline Integration & Enforcement
+- [x] Apply global correlationId middleware to all HTTP routes
+- [x] Implement automatic audit logging in webhook inbound pipeline
+- [x] Enforce compliance mode with fail-closed blocking
+- [x] Implement automatic audit logging in payment request endpoint
+- [x] Create integration tests for compliance pipeline enforcement (170 tests, all passing)
+- [x] Verify all tests pass and TypeScript clean

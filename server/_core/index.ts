@@ -11,6 +11,10 @@ import paymentsRoutes from "../payments";
 import { startNotificationProcessor } from "../notifications";
 import { mpesaSignatureMiddleware, defaultMpesaSignatureConfig, createSignatureAuditLogger } from "../security/mpesaSignature.middleware";
 import * as db from "../db";
+import { correlationIdMiddleware } from "../compliance/correlationId.middleware";
+import { AuditTrailService } from "../compliance/auditTrail.service";
+import { ComplianceModeService } from "../compliance/complianceMode.service";
+import { registerCompliancePipelineMiddleware } from "../compliance/compliancePipeline.middleware";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -87,6 +91,17 @@ async function startServer() {
   // Parse JSON after signature verification
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Apply global correlation ID middleware
+  app.use(correlationIdMiddleware);
+
+  // Initialize compliance services
+  const redis = require("redis").createClient();
+  const auditTrailService = new AuditTrailService(redis);
+  const complianceModeService = new ComplianceModeService(auditTrailService, process.env.COMPLIANCE_MODE === "true");
+
+  // Register compliance pipeline middleware
+  registerCompliancePipelineMiddleware(app, auditTrailService, complianceModeService);
 
   registerOAuthRoutes(app);
 
