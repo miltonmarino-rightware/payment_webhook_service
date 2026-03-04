@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import webhookRoutes from "../webhooks";
 import paymentsRoutes from "../payments";
+import { createStripeRouter } from "../routes/stripe.routes";
 import { startNotificationProcessor } from "../notifications";
 import { mpesaSignatureMiddleware, defaultMpesaSignatureConfig, createSignatureAuditLogger } from "../security/mpesaSignature.middleware";
 import * as db from "../db";
@@ -110,6 +111,11 @@ async function startServer() {
 
   // Register payment routes (no signature verification needed - internal only)
   app.use("/payments", paymentsRoutes);
+
+  // Register Stripe routes (multi-operator support)
+  const stripeRouter = createStripeRouter();
+  app.use("/", stripeRouter);
+  app.use("/webhooks", stripeRouter);
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
