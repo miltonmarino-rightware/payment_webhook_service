@@ -133,3 +133,12 @@
 - [x] Create Stripe routes (stripe.routes.ts)
 - [x] Integrate Stripe routes into server
 - [x] Verify all tests pass and TypeScript clean (192 tests passing)
+
+
+## Phase 15: Stripe Payment Request Implementation
+- [ ] Install Stripe SDK and create internal API key middleware
+- [ ] Implement Stripe PaymentIntent creation with amount conversion
+- [ ] Implement payment request endpoint with validation and idempotency
+- [ ] Add audit logging and compliance masking
+- [ ] Create comprehensive tests for Stripe endpoint
+- [ ] Verify all tests pass and TypeScript clean
