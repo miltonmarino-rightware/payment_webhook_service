@@ -359,12 +359,20 @@ export function createStripeRouter(): Router {
         });
       }
 
-      // Verify webhook signature with Stripe
-      const rawBody = JSON.stringify(req.body);
-      const isSignatureValid = stripeService.verifyWebhookSignature(
-        rawBody,
-        signatureValidation.signature!
-      );
+     // Verify webhook signature with Stripe (MUST use raw body bytes)
+const rawBodyBuffer = (req as any).rawBody as Buffer | undefined;
+
+if (!rawBodyBuffer) {
+  console.warn("[StripeRoutes] Missing rawBody buffer for signature verification");
+  return res.status(400).json({ error: "Missing raw body" });
+}
+
+const rawBody = rawBodyBuffer.toString("utf8");
+
+const isSignatureValid = stripeService.verifyWebhookSignature(
+  rawBody,
+  signatureValidation.signature!
+);
 
       if (!isSignatureValid) {
         console.warn("[StripeRoutes] Stripe webhook signature verification failed");
