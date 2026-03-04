@@ -16,6 +16,7 @@ import { correlationIdMiddleware } from "../compliance/correlationId.middleware"
 import { AuditTrailService } from "../compliance/auditTrail.service";
 import { ComplianceModeService } from "../compliance/complianceMode.service";
 import { registerCompliancePipelineMiddleware } from "../compliance/compliancePipeline.middleware";
+import { createClient } from "redis";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -97,9 +98,21 @@ async function startServer() {
   app.use(correlationIdMiddleware);
 
   // Initialize compliance services
-  const redis = require("redis").createClient();
-  const auditTrailService = new AuditTrailService(redis);
-  const complianceModeService = new ComplianceModeService(auditTrailService, process.env.COMPLIANCE_MODE === "true");
+const redis = createClient({
+  url: process.env.REDIS_URL
+});
+
+redis.on("error", (err) => {
+  console.error("Redis error:", err);
+});
+
+await redis.connect();
+
+const auditTrailService = new AuditTrailService(redis);
+const complianceModeService = new ComplianceModeService(
+  auditTrailService,
+  process.env.COMPLIANCE_MODE === "true"
+);
 
   // Register compliance pipeline middleware
   registerCompliancePipelineMiddleware(app, auditTrailService, complianceModeService);
