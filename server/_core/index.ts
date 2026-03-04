@@ -128,7 +128,7 @@ const complianceModeService = new ComplianceModeService(
   // Register Stripe routes (multi-operator support)
   const stripeRouter = createStripeRouter();
   app.use("/", stripeRouter);
-  app.use("/webhooks", stripeRouter);
+  
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
