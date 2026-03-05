@@ -188,6 +188,8 @@ export function createStripeRouter(): Router {
         let stripeResponse;
         try {
           stripeResponse = await stripeService.createPaymentIntent(paymentRequest);
+          //adicionei esta linha para reconhecer db
+          await db.setPaymentOperatorReference(newPayment.id, stripeResponse.paymentIntentId);
         } catch (stripeError) {
           console.error("[StripeRoutes] Stripe API error:", stripeError);
 
