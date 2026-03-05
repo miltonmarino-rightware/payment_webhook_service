@@ -381,20 +381,30 @@ export async function incrementNotificationAttempt(
 
 
 //adcionamos funções 
+export async function setPaymentOperatorReference(
+  paymentId: number,
+  operatorReference: string
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
 
-export async function setPaymentOperatorReference(paymentId: number, operatorReference: string) {
   await db
     .update(payments)
-    .set({ operatorReference })
+    .set({ operatorReference, updatedAt: new Date() })
     .where(eq(payments.id, paymentId));
 }
 
-export async function getPaymentByOperatorReference(operatorReference: string) {
-  const [payment] = await db
+export async function getPaymentByOperatorReference(
+  operatorReference: string
+): Promise<Payment | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
     .select()
     .from(payments)
     .where(eq(payments.operatorReference, operatorReference))
     .limit(1);
 
-  return payment || null;
+  return result.length > 0 ? result[0] : undefined;
 }
