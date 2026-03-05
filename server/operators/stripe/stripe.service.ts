@@ -205,41 +205,88 @@ if (!transactionId) {
   transactionId = payment.transactionId;
 }
 
-      // Handle different event types
-      switch (event.type) {
-        case StripeEventType.PAYMENT_INTENT_SUCCEEDED:
-          console.log(
-            `[Stripe] Payment succeeded for transaction: ${transactionId}`
-          );
-          // Update payment to SUCCESS
-          // Trigger notification
-          break;
+    // Handle different event types
+switch (event.type) {
+  case StripeEventType.PAYMENT_INTENT_SUCCEEDED: {
+    console.log(`[Stripe] Payment succeeded for transaction: ${transactionId}`);
 
-        case StripeEventType.PAYMENT_INTENT_PAYMENT_FAILED:
-          console.log(
-            `[Stripe] Payment failed for transaction: ${transactionId}`
-          );
-          // Update payment to FAILED
-          // Trigger notification
-          break;
+    const payment = await db.getPaymentByTransactionId(transactionId);
+    if (!payment) {
+      console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
+      return;
+    }
 
-        case StripeEventType.PAYMENT_INTENT_CANCELED:
-          console.log(
-            `[Stripe] Payment canceled for transaction: ${transactionId}`
-          );
-          // Update payment to EXPIRED
-          break;
+    await db.updatePaymentStatus(payment.id, "SUCCESS", {
+      stripeEventId: event.id,
+      paymentIntentId: event.data.object.id,
+      stripeStatus: event.data.object.status,
+      amount: event.data.object.amount,
+      currency: event.data.object.currency,
+    });
 
-        case StripeEventType.CHARGE_REFUNDED:
-          console.log(
-            `[Stripe] Charge refunded for transaction: ${transactionId}`
-          );
-          // Handle refund
-          break;
+    break;
+  }
 
-        default:
-          console.log(`[Stripe] Unhandled webhook event type: ${event.type}`);
-      }
+  case StripeEventType.PAYMENT_INTENT_PAYMENT_FAILED: {
+    console.log(`[Stripe] Payment failed for transaction: ${transactionId}`);
+
+    const payment = await db.getPaymentByTransactionId(transactionId);
+    if (!payment) {
+      console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
+      return;
+    }
+
+    await db.updatePaymentStatus(payment.id, "FAILED", {
+      stripeEventId: event.id,
+      paymentIntentId: event.data.object.id,
+      stripeStatus: event.data.object.status,
+      lastPaymentError: event.data.object.last_payment_error ?? null,
+    });
+
+    break;
+  }
+
+  case StripeEventType.PAYMENT_INTENT_CANCELED: {
+    console.log(`[Stripe] Payment canceled for transaction: ${transactionId}`);
+
+    const payment = await db.getPaymentByTransactionId(transactionId);
+    if (!payment) {
+      console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
+      return;
+    }
+
+    await db.updatePaymentStatus(payment.id, "EXPIRED", {
+      stripeEventId: event.id,
+      paymentIntentId: event.data.object.id,
+      stripeStatus: event.data.object.status,
+    });
+
+    break;
+  }
+
+  case StripeEventType.CHARGE_REFUNDED: {
+    console.log(`[Stripe] Charge refunded for transaction: ${transactionId}`);
+
+    const payment = await db.getPaymentByTransactionId(transactionId);
+    if (!payment) {
+      console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
+      return;
+    }
+
+    // Se quiseres, podes criar estado "REFUNDED". Por agora, só logamos no operatorResponse.
+    await db.updatePaymentStatus(payment.id, payment.status, {
+      stripeEventId: event.id,
+      paymentIntentId: event.data.object.id,
+      stripeStatus: event.data.object.status,
+      refunded: true,
+    });
+
+    break;
+  }
+
+  default:
+    console.log(`[Stripe] Unhandled webhook event type: ${event.type}`);
+} //a correção termina por aqui 
 
       console.log(
         `[Stripe] Webhook event processed: ${event.type} for transaction ${transactionId}`
