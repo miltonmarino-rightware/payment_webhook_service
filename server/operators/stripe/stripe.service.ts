@@ -190,15 +190,19 @@ export class StripeService {
     try {
       console.log(`[Stripe] Processing webhook event: ${event.type}`);
 
-      const transactionId = event.data.object.metadata?.transactionId;
-      const paymentIntentId = event.data.object.id;
+      let transactionId = event.data.object.metadata?.transactionId;
 
-      if (!transactionId) {
-        console.warn(
-          `[Stripe] Webhook event missing transactionId: ${paymentIntentId}`
-        );
-        return;
-      }
+if (!transactionId) {
+  const paymentIntentId = event.data.object.id; // pi_...
+  const payment = await db.getPaymentByOperatorReference(paymentIntentId);
+
+  if (!payment) {
+    console.warn(`[Stripe] Missing transactionId and no payment found for intent: ${paymentIntentId}`);
+    return;
+  }
+
+  transactionId = payment.transactionId;
+}
 
       // Handle different event types
       switch (event.type) {
