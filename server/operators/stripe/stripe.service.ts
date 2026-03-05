@@ -15,6 +15,7 @@
  * This service only orchestrates payment intents and maintains audit trails.
  */
 
+import * as db from "../../db";
 import Stripe from "stripe";
 import crypto from "crypto";
 
