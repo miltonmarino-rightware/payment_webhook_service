@@ -10,7 +10,11 @@ import webhookRoutes from "../webhooks";
 import paymentsRoutes from "../payments";
 import { createStripeRouter } from "../routes/stripe.routes";
 import { startNotificationProcessor } from "../notifications";
-import { mpesaSignatureMiddleware, defaultMpesaSignatureConfig, createSignatureAuditLogger } from "../security/mpesaSignature.middleware";
+import {
+  mpesaSignatureMiddleware,
+  defaultMpesaSignatureConfig,
+  createSignatureAuditLogger,
+} from "../security/mpesaSignature.middleware";
 import * as db from "../db";
 import { correlationIdMiddleware } from "../compliance/correlationId.middleware";
 import { AuditTrailService } from "../compliance/auditTrail.service";
@@ -50,7 +54,7 @@ async function startServer() {
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.header(
       "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
     );
     res.header("Access-Control-Allow-Credentials", "true");
 
@@ -62,16 +66,22 @@ async function startServer() {
     next();
   });
 
-  // Apply raw body capture BEFORE JSON parsing for signature verification
-  app.use(express.raw({ type: "application/json", limit: "50mb" }), (req, res, next) => {
-    // Store raw body for signature verification
-    if (req.body instanceof Buffer) {
-      (req as any).rawBody = req.body;
-    }
-    next();
-  });
+  /**
+   * IMPORTANT:
+   * Parse JSON FIRST and keep rawBody for signature verification (Stripe needs exact raw bytes).
+   * This must run BEFORE any signature middleware.
+   */
+  app.use(
+    express.json({
+      limit: "50mb",
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf; // Buffer exato do body
+      },
+    })
+  );
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // Apply signature verification middleware
+  // Signature audit logger (shared)
   const signatureAuditLogger = createSignatureAuditLogger(
     async (event: string, details: Record<string, unknown>) => {
       try {
@@ -88,38 +98,43 @@ async function startServer() {
     }
   );
 
-  app.use(mpesaSignatureMiddleware(defaultMpesaSignatureConfig, signatureAuditLogger));
-
-  // Parse JSON after signature verification
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  /**
+   * Apply mPesa signature middleware for ALL routes EXCEPT Stripe webhooks.
+   * This prevents Stripe webhooks from being blocked/modified by mPesa security layer.
+   */
+  const mpesaMw = mpesaSignatureMiddleware(defaultMpesaSignatureConfig, signatureAuditLogger);
+  app.use((req, res, next) => {
+    // Não aplicar mPesa middleware no Stripe webhook
+    if (req.originalUrl.startsWith("/webhooks/stripe")) return next();
+    return mpesaMw(req, res, next);
+  });
 
   // Apply global correlation ID middleware
   app.use(correlationIdMiddleware);
 
   // Initialize compliance services
-const redis = createClient({
-  url: process.env.REDIS_URL
-});
+  const redis = createClient({
+    url: process.env.REDIS_URL,
+  });
 
-redis.on("error", (err) => {
-  console.error("Redis error:", err);
-});
+  redis.on("error", (err) => {
+    console.error("Redis error:", err);
+  });
 
-await redis.connect();
+  await redis.connect();
 
-const auditTrailService = new AuditTrailService(redis);
-const complianceModeService = new ComplianceModeService(
-  auditTrailService,
-  process.env.COMPLIANCE_MODE === "true"
-);
+  const auditTrailService = new AuditTrailService(redis);
+  const complianceModeService = new ComplianceModeService(
+    auditTrailService,
+    process.env.COMPLIANCE_MODE === "true"
+  );
 
   // Register compliance pipeline middleware
   registerCompliancePipelineMiddleware(app, auditTrailService, complianceModeService);
 
   registerOAuthRoutes(app);
 
-  // Register webhook routes (signature verification applied above)
+  // Register webhook routes (mPesa signature verification applied above, Stripe excluded above)
   app.use("/webhooks", webhookRoutes);
 
   // Register payment routes (no signature verification needed - internal only)
@@ -128,7 +143,6 @@ const complianceModeService = new ComplianceModeService(
   // Register Stripe routes (multi-operator support)
   const stripeRouter = createStripeRouter();
   app.use("/", stripeRouter);
-  
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
@@ -139,10 +153,10 @@ const complianceModeService = new ComplianceModeService(
     createExpressMiddleware({
       router: appRouter,
       createContext,
-    }),
+    })
   );
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
+  const preferredPort = parseInt(process.env.PORT || "3000", 10);
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
