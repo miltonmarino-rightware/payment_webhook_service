@@ -378,3 +378,23 @@ export async function incrementNotificationAttempt(
 
   await db.update(notifications).set(updateData).where(eq(notifications.id, id));
 }
+
+
+//adcionamos funções 
+
+export async function setPaymentOperatorReference(paymentId: number, operatorReference: string) {
+  await db
+    .update(payments)
+    .set({ operatorReference })
+    .where(eq(payments.id, paymentId));
+}
+
+export async function getPaymentByOperatorReference(operatorReference: string) {
+  const [payment] = await db
+    .select()
+    .from(payments)
+    .where(eq(payments.operatorReference, operatorReference))
+    .limit(1);
+
+  return payment || null;
+}
