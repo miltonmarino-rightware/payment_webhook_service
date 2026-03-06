@@ -13,9 +13,9 @@
  * - Non-repudiable records (cryptographically signed)
  */
 
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";import { drizzle } from "drizzle-orm/mysql2";
+import { Pool } from "pg";
 import {
   InsertUser,
   users,
@@ -30,9 +30,6 @@ import {
   InsertNotification,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
-
-let _db: ReturnType<typeof drizzle> | null = null;
-let _pool: Pool | null = null;
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: Pool | null = null;
@@ -66,47 +63,36 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 
   try {
+    const existingUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.openId, user.openId))
+      .limit(1);
+
     const values: InsertUser = {
       openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
+      name: user.name ?? null,
+      email: user.email ?? null,
+      loginMethod: user.loginMethod ?? null,
+      role: user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "user"),
+      lastSignedIn: user.lastSignedIn ?? new Date(),
     };
 
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
+    if (existingUser.length > 0) {
+      await db
+        .update(users)
+        .set({
+          name: values.name,
+          email: values.email,
+          loginMethod: values.loginMethod,
+          role: values.role,
+          lastSignedIn: values.lastSignedIn,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.openId, user.openId));
+    } else {
+      await db.insert(users).values(values);
     }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -136,16 +122,9 @@ export async function createPayment(data: InsertPayment): Promise<Payment> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(payments).values(data);
-  const insertId = (result as any).insertId;
-  const payment = await db
-    .select()
-    .from(payments)
-    .where(eq(payments.id, Number(insertId)))
-    .limit(1);
-
-  if (!payment[0]) throw new Error("Failed to create payment");
-  return payment[0];
+  const result = await db.insert(payments).values(data).returning();
+  if (!result[0]) throw new Error("Failed to create payment");
+  return result[0];
 }
 
 /**
@@ -210,11 +189,14 @@ export async function updatePaymentStatus(
     updateData.completedAt = new Date();
   }
 
-  await db.update(payments).set(updateData).where(eq(payments.id, id));
+  const result = await db
+    .update(payments)
+    .set(updateData)
+    .where(eq(payments.id, id))
+    .returning();
 
-  const updated = await getPaymentById(id);
-  if (!updated) throw new Error("Failed to update payment");
-  return updated;
+  if (!result[0]) throw new Error("Failed to update payment");
+  return result[0];
 }
 
 /**
@@ -243,16 +225,9 @@ export async function logTransaction(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(transactionLogs).values(data);
-  const insertId = (result as any).insertId;
-  const log = await db
-    .select()
-    .from(transactionLogs)
-    .where(eq(transactionLogs.id, Number(insertId)))
-    .limit(1);
-
-  if (!log[0]) throw new Error("Failed to create transaction log");
-  return log[0];
+  const result = await db.insert(transactionLogs).values(data).returning();
+  if (!result[0]) throw new Error("Failed to create transaction log");
+  return result[0];
 }
 
 /**
@@ -281,16 +256,9 @@ export async function createNotification(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(notifications).values(data);
-  const insertId = (result as any).insertId;
-  const notification = await db
-    .select()
-    .from(notifications)
-    .where(eq(notifications.id, Number(insertId)))
-    .limit(1);
-
-  if (!notification[0]) throw new Error("Failed to create notification");
-  return notification[0];
+  const result = await db.insert(notifications).values(data).returning();
+  if (!result[0]) throw new Error("Failed to create notification");
+  return result[0];
 }
 
 /**
@@ -335,16 +303,14 @@ export async function updateNotificationStatus(
     updateData.responseBody = responseBody;
   }
 
-  await db.update(notifications).set(updateData).where(eq(notifications.id, id));
-
-  const updated = await db
-    .select()
-    .from(notifications)
+  const result = await db
+    .update(notifications)
+    .set(updateData)
     .where(eq(notifications.id, id))
-    .limit(1);
+    .returning();
 
-  if (!updated[0]) throw new Error("Failed to update notification");
-  return updated[0];
+  if (!result[0]) throw new Error("Failed to update notification");
+  return result[0];
 }
 
 /**
@@ -388,8 +354,10 @@ export async function incrementNotificationAttempt(
   await db.update(notifications).set(updateData).where(eq(notifications.id, id));
 }
 
+// ============================================================================
+// Stripe / Operator Reference helpers
+// ============================================================================
 
-//adcionamos funções 
 export async function setPaymentOperatorReference(
   paymentId: number,
   operatorReference: string
