@@ -1,14 +1,14 @@
 /**
  * Stripe Payment Operator Service
- * 
+ *
  * Handles Stripe payment operations:
  * - Creating payment intents for card payments
  * - Processing Stripe webhook events
  * - Managing payment state transitions
- * 
+ *
  * This service is isolated from mPesa and other operators.
  * Security/compliance middleware is applied at the route level.
- * 
+ *
  * LEGAL COMPLIANCE NOTICE:
  * This service does NOT handle, store, or move money.
  * Money flows directly from customer → Stripe → merchant.
@@ -284,10 +284,7 @@ export class StripeService {
   /**
    * Verify Stripe webhook signature
    */
-  verifyWebhookSignature(
-    payload: string,
-    signature: string
-  ): boolean {
+  verifyWebhookSignature(payload: string, signature: string): boolean {
     try {
       if (!this.stripeWebhookSecret) {
         console.warn("[Stripe] STRIPE_WEBHOOK_SECRET not configured");
@@ -316,9 +313,7 @@ export class StripeService {
       const timeDiff = Math.abs(now - signedTime);
 
       if (timeDiff > 300) {
-        console.warn(
-          `[Stripe] Webhook timestamp too old: ${timeDiff} seconds`
-        );
+        console.warn(`[Stripe] Webhook timestamp too old: ${timeDiff} seconds`);
         return false;
       }
 
@@ -328,12 +323,10 @@ export class StripeService {
         .update(signedContent)
         .digest("hex");
 
-      const isValid = crypto.timingSafeEqual(
+      return crypto.timingSafeEqual(
         Buffer.from(signatureValue),
         Buffer.from(expectedSignature)
       );
-
-      return isValid;
     } catch (error) {
       console.error("[Stripe] Error verifying webhook signature:", error);
       return false;
@@ -349,9 +342,7 @@ export class StripeService {
         throw new Error("Stripe client not initialized");
       }
 
-      console.log(
-        `[Stripe] Getting payment intent status: ${paymentIntentId}`
-      );
+      console.log(`[Stripe] Getting payment intent status: ${paymentIntentId}`);
 
       const intent = await this.stripeClient.paymentIntents.retrieve(
         paymentIntentId
