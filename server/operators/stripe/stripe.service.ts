@@ -41,7 +41,13 @@ export interface StripePaymentIntentResponse {
   paymentIntentId: string;
   amount: number;
   currency: string;
-  status: "requires_payment_method" | "requires_confirmation" | "requires_action" | "processing" | "succeeded" | "canceled";
+  status:
+    | "requires_payment_method"
+    | "requires_confirmation"
+    | "requires_action"
+    | "processing"
+    | "succeeded"
+    | "canceled";
   createdAt: Date;
 }
 
@@ -93,7 +99,6 @@ export class StripeService {
     if (!this.stripeSecretKey) {
       console.warn("[Stripe] STRIPE_SECRET_KEY environment variable not set");
     } else {
-      // Initialize Stripe client only if secret key is available
       this.stripeClient = new Stripe(this.stripeSecretKey);
     }
 
@@ -104,15 +109,6 @@ export class StripeService {
 
   /**
    * Create a payment intent for card payment
-   * 
-   * Implementation:
-   * 1. Call Stripe API to create payment intent
-   * 2. Return client secret for frontend
-   * 3. Store transaction reference in metadata
-   * 
-   * @param request - Payment intent request with transaction details
-   * @returns Payment intent response with client secret
-   * @throws Error if Stripe API call fails or secret key not configured
    */
   async createPaymentIntent(
     request: StripePaymentIntentRequest
@@ -126,33 +122,28 @@ export class StripeService {
         `[Stripe] Creating payment intent for transaction: ${request.transactionId}`
       );
 
-      // Create payment intent via Stripe API
-      // Amount is already in cents (Stripe expects cents for most currencies)
       const paymentIntent = await this.stripeClient.paymentIntents.create({
-        amount: Math.round(request.amount), // Ensure integer cents
-        currency: request.currency.toLowerCase(), // Stripe expects lowercase
+        amount: Math.round(request.amount),
+        currency: request.currency.toLowerCase(),
         description: request.description,
-        statement_descriptor: request.description.substring(0, 22), // Max 22 chars
         metadata: {
           transactionId: request.transactionId,
           externalSystemId: request.externalSystemId,
           externalSystemWebhook: request.externalSystemWebhook,
           ...(request.metadata || {}),
         },
-        // Enable automatic payment methods (card, etc.)
         automatic_payment_methods: {
           enabled: true,
         },
       });
 
-      // Map Stripe status to our response format
       const response: StripePaymentIntentResponse = {
         clientSecret: paymentIntent.client_secret || "",
         paymentIntentId: paymentIntent.id,
         amount: paymentIntent.amount,
         currency: paymentIntent.currency.toUpperCase(),
         status: this.mapStripeStatus(paymentIntent.status),
-        createdAt: new Date(paymentIntent.created * 1000), // Stripe uses Unix timestamp
+        createdAt: new Date(paymentIntent.created * 1000),
       };
 
       console.log(
@@ -162,14 +153,13 @@ export class StripeService {
       return response;
     } catch (error) {
       console.error("[Stripe] Error creating payment intent:", error);
-      
-      // Provide detailed error information for debugging
+
       if (error instanceof Stripe.errors.StripeAPIError) {
         throw new Error(
           `Stripe API Error: ${error.message} (Code: ${error.code})`
         );
       }
-      
+
       throw new Error(
         `Failed to create Stripe payment intent: ${(error as Error).message}`
       );
@@ -178,14 +168,6 @@ export class StripeService {
 
   /**
    * Handle Stripe webhook event
-   * 
-   * Implementation:
-   * 1. Verify webhook signature
-   * 2. Parse event type
-   * 3. Update payment state based on event
-   * 4. Trigger notifications
-   * 
-   * @param event - Stripe webhook event
    */
   async handleStripeWebhook(event: StripeWebhookEvent): Promise<void> {
     try {
@@ -193,100 +175,100 @@ export class StripeService {
 
       let transactionId = event.data.object.metadata?.transactionId;
 
-if (!transactionId) {
-  const paymentIntentId = event.data.object.id; // pi_...
-  const payment = await db.getPaymentByOperatorReference(paymentIntentId);
+      if (!transactionId) {
+        const paymentIntentId = event.data.object.id;
+        const payment = await db.getPaymentByOperatorReference(paymentIntentId);
 
-  if (!payment) {
-    console.warn(`[Stripe] Missing transactionId and no payment found for intent: ${paymentIntentId}`);
-    return;
-  }
+        if (!payment) {
+          console.warn(
+            `[Stripe] Missing transactionId and no payment found for intent: ${paymentIntentId}`
+          );
+          return;
+        }
 
-  transactionId = payment.transactionId;
-}
+        transactionId = payment.transactionId;
+      }
 
-    // Handle different event types
-switch (event.type) {
-  case StripeEventType.PAYMENT_INTENT_SUCCEEDED: {
-    console.log(`[Stripe] Payment succeeded for transaction: ${transactionId}`);
+      switch (event.type) {
+        case StripeEventType.PAYMENT_INTENT_SUCCEEDED: {
+          console.log(`[Stripe] Payment succeeded for transaction: ${transactionId}`);
 
-    const payment = await db.getPaymentByTransactionId(transactionId);
-    if (!payment) {
-      console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
-      return;
-    }
+          const payment = await db.getPaymentByTransactionId(transactionId);
+          if (!payment) {
+            console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
+            return;
+          }
 
-    await db.updatePaymentStatus(payment.id, "SUCCESS", {
-      stripeEventId: event.id,
-      paymentIntentId: event.data.object.id,
-      stripeStatus: event.data.object.status,
-      amount: event.data.object.amount,
-      currency: event.data.object.currency,
-    });
+          await db.updatePaymentStatus(payment.id, "SUCCESS", {
+            stripeEventId: event.id,
+            paymentIntentId: event.data.object.id,
+            stripeStatus: event.data.object.status,
+            amount: event.data.object.amount,
+            currency: event.data.object.currency,
+          });
 
-    break;
-  }
+          break;
+        }
 
-  case StripeEventType.PAYMENT_INTENT_PAYMENT_FAILED: {
-    console.log(`[Stripe] Payment failed for transaction: ${transactionId}`);
+        case StripeEventType.PAYMENT_INTENT_PAYMENT_FAILED: {
+          console.log(`[Stripe] Payment failed for transaction: ${transactionId}`);
 
-    const payment = await db.getPaymentByTransactionId(transactionId);
-    if (!payment) {
-      console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
-      return;
-    }
+          const payment = await db.getPaymentByTransactionId(transactionId);
+          if (!payment) {
+            console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
+            return;
+          }
 
-    await db.updatePaymentStatus(payment.id, "FAILED", {
-      stripeEventId: event.id,
-      paymentIntentId: event.data.object.id,
-      stripeStatus: event.data.object.status,
-      lastPaymentError: event.data.object.last_payment_error ?? null,
-    });
+          await db.updatePaymentStatus(payment.id, "FAILED", {
+            stripeEventId: event.id,
+            paymentIntentId: event.data.object.id,
+            stripeStatus: event.data.object.status,
+            lastPaymentError: event.data.object.last_payment_error ?? null,
+          });
 
-    break;
-  }
+          break;
+        }
 
-  case StripeEventType.PAYMENT_INTENT_CANCELED: {
-    console.log(`[Stripe] Payment canceled for transaction: ${transactionId}`);
+        case StripeEventType.PAYMENT_INTENT_CANCELED: {
+          console.log(`[Stripe] Payment canceled for transaction: ${transactionId}`);
 
-    const payment = await db.getPaymentByTransactionId(transactionId);
-    if (!payment) {
-      console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
-      return;
-    }
+          const payment = await db.getPaymentByTransactionId(transactionId);
+          if (!payment) {
+            console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
+            return;
+          }
 
-    await db.updatePaymentStatus(payment.id, "EXPIRED", {
-      stripeEventId: event.id,
-      paymentIntentId: event.data.object.id,
-      stripeStatus: event.data.object.status,
-    });
+          await db.updatePaymentStatus(payment.id, "EXPIRED", {
+            stripeEventId: event.id,
+            paymentIntentId: event.data.object.id,
+            stripeStatus: event.data.object.status,
+          });
 
-    break;
-  }
+          break;
+        }
 
-  case StripeEventType.CHARGE_REFUNDED: {
-    console.log(`[Stripe] Charge refunded for transaction: ${transactionId}`);
+        case StripeEventType.CHARGE_REFUNDED: {
+          console.log(`[Stripe] Charge refunded for transaction: ${transactionId}`);
 
-    const payment = await db.getPaymentByTransactionId(transactionId);
-    if (!payment) {
-      console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
-      return;
-    }
+          const payment = await db.getPaymentByTransactionId(transactionId);
+          if (!payment) {
+            console.warn(`[Stripe] Payment not found for transaction: ${transactionId}`);
+            return;
+          }
 
-    // Se quiseres, podes criar estado "REFUNDED". Por agora, só logamos no operatorResponse.
-    await db.updatePaymentStatus(payment.id, payment.status, {
-      stripeEventId: event.id,
-      paymentIntentId: event.data.object.id,
-      stripeStatus: event.data.object.status,
-      refunded: true,
-    });
+          await db.updatePaymentStatus(payment.id, payment.status, {
+            stripeEventId: event.id,
+            paymentIntentId: event.data.object.id,
+            stripeStatus: event.data.object.status,
+            refunded: true,
+          });
 
-    break;
-  }
+          break;
+        }
 
-  default:
-    console.log(`[Stripe] Unhandled webhook event type: ${event.type}`);
-} //a correção termina por aqui 
+        default:
+          console.log(`[Stripe] Unhandled webhook event type: ${event.type}`);
+      }
 
       console.log(
         `[Stripe] Webhook event processed: ${event.type} for transaction ${transactionId}`
@@ -301,13 +283,6 @@ switch (event.type) {
 
   /**
    * Verify Stripe webhook signature
-   * 
-   * Uses HMAC-SHA256 to verify webhook authenticity.
-   * Stripe sends the signature in the stripe-signature header.
-   * 
-   * @param payload - Raw request body as string
-   * @param signature - Stripe signature header value
-   * @returns true if signature is valid, false otherwise
    */
   verifyWebhookSignature(
     payload: string,
@@ -319,7 +294,6 @@ switch (event.type) {
         return false;
       }
 
-      // Stripe signature format: t=timestamp,v1=signature
       const parts = signature.split(",");
       let timestamp = "";
       let signatureValue = "";
@@ -337,26 +311,23 @@ switch (event.type) {
         return false;
       }
 
-      // Check timestamp is recent (within 5 minutes)
       const now = Math.floor(Date.now() / 1000);
       const signedTime = parseInt(timestamp);
       const timeDiff = Math.abs(now - signedTime);
 
-      if (timeDiff > 300) { // 5 minutes
+      if (timeDiff > 300) {
         console.warn(
           `[Stripe] Webhook timestamp too old: ${timeDiff} seconds`
         );
         return false;
       }
 
-      // Compute expected signature
       const signedContent = `${timestamp}.${payload}`;
       const expectedSignature = crypto
         .createHmac("sha256", this.stripeWebhookSecret)
         .update(signedContent)
         .digest("hex");
 
-      // Timing-safe comparison
       const isValid = crypto.timingSafeEqual(
         Buffer.from(signatureValue),
         Buffer.from(expectedSignature)
@@ -371,11 +342,6 @@ switch (event.type) {
 
   /**
    * Get payment intent status
-   * 
-   * Retrieves current status from Stripe API
-   * 
-   * @param paymentIntentId - Stripe payment intent ID
-   * @returns Current payment intent status
    */
   async getPaymentIntentStatus(paymentIntentId: string): Promise<string> {
     try {
@@ -402,10 +368,6 @@ switch (event.type) {
 
   /**
    * Cancel payment intent
-   * 
-   * Cancels a payment intent in Stripe
-   * 
-   * @param paymentIntentId - Stripe payment intent ID
    */
   async cancelPaymentIntent(paymentIntentId: string): Promise<void> {
     try {
@@ -428,13 +390,16 @@ switch (event.type) {
 
   /**
    * Map Stripe payment intent status to our internal format
-   * 
-   * @param stripeStatus - Status from Stripe API
-   * @returns Mapped status string
    */
   private mapStripeStatus(
     stripeStatus: string
-  ): "requires_payment_method" | "requires_confirmation" | "requires_action" | "processing" | "succeeded" | "canceled" {
+  ):
+    | "requires_payment_method"
+    | "requires_confirmation"
+    | "requires_action"
+    | "processing"
+    | "succeeded"
+    | "canceled" {
     switch (stripeStatus) {
       case "requires_payment_method":
         return "requires_payment_method";
