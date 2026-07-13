@@ -13,7 +13,7 @@ function errorStatus(error: unknown): number {
 
   if (message === "payment_intent_not_found") return 404;
   if (message === "database_unavailable") return 503;
-  if (message === "provider_not_implemented") return 501;
+  if (message.startsWith("payment_provider_not_implemented:")) return 501;
   if (
     [
       "invalid_amount",
