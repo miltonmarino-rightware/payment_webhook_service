@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import webhookRoutes from "../webhooks";
 import paymentsRoutes from "../payments";
+import paymentIntentRoutes from "../gateway/payment-intents/paymentIntent.routes";
 import { createStripeRouter } from "../routes/stripe.routes";
 import { startNotificationProcessor } from "../notifications";
 import {
@@ -47,8 +48,6 @@ async function startServer() {
   const server = createServer(app);
   await initDatabaseSchema();
 
-  
-  // Enable CORS for all routes - reflect the request origin to support credentials
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin) {
@@ -61,7 +60,6 @@ async function startServer() {
     );
     res.header("Access-Control-Allow-Credentials", "true");
 
-    // Handle preflight requests
     if (req.method === "OPTIONS") {
       res.sendStatus(200);
       return;
@@ -69,22 +67,16 @@ async function startServer() {
     next();
   });
 
-  /**
-   * IMPORTANT:
-   * Parse JSON FIRST and keep rawBody for signature verification (Stripe needs exact raw bytes).
-   * This must run BEFORE any signature middleware.
-   */
   app.use(
     express.json({
       limit: "50mb",
       verify: (req: any, _res, buf) => {
-        req.rawBody = buf; // Buffer exato do body
+        req.rawBody = buf;
       },
     })
   );
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // Signature audit logger (shared)
   const signatureAuditLogger = createSignatureAuditLogger(
     async (event: string, details: Record<string, unknown>) => {
       try {
@@ -101,21 +93,18 @@ async function startServer() {
     }
   );
 
-  /**
-   * Apply mPesa signature middleware for ALL routes EXCEPT Stripe webhooks.
-   * This prevents Stripe webhooks from being blocked/modified by mPesa security layer.
-   */
   const mpesaMw = mpesaSignatureMiddleware(defaultMpesaSignatureConfig, signatureAuditLogger);
   app.use((req, res, next) => {
-    // Não aplicar mPesa middleware no Stripe webhook
-    if (req.originalUrl.startsWith("/webhooks/stripe")) return next();
+    const excludedFromMpesaSignature =
+      req.originalUrl.startsWith("/webhooks/stripe") ||
+      req.originalUrl.startsWith("/v1/");
+
+    if (excludedFromMpesaSignature) return next();
     return mpesaMw(req, res, next);
   });
 
-  // Apply global correlation ID middleware
   app.use(correlationIdMiddleware);
 
-  // Initialize compliance services
   const redis = createClient({
     url: process.env.REDIS_URL,
   });
@@ -132,18 +121,13 @@ async function startServer() {
     process.env.COMPLIANCE_MODE === "true"
   );
 
-  // Register compliance pipeline middleware
   registerCompliancePipelineMiddleware(app, auditTrailService, complianceModeService);
 
   registerOAuthRoutes(app);
-
-  // Register webhook routes (mPesa signature verification applied above, Stripe excluded above)
   app.use("/webhooks", webhookRoutes);
-
-  // Register payment routes (no signature verification needed - internal only)
   app.use("/payments", paymentsRoutes);
+  app.use("/v1", paymentIntentRoutes);
 
-  // Register Stripe routes (multi-operator support)
   const stripeRouter = createStripeRouter();
   app.use("/", stripeRouter);
 
@@ -170,8 +154,7 @@ async function startServer() {
     console.log(`[api] server listening on port ${port}`);
   });
 
-  // Start notification processor
-  startNotificationProcessor(60000); // Check every 60 seconds
+  startNotificationProcessor(60000);
 }
 
 startServer().catch(console.error);
