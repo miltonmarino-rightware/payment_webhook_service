@@ -13,6 +13,18 @@ function createPublicId(prefix: string): string {
   return `${prefix}_${crypto.randomBytes(16).toString("hex")}`;
 }
 
+function extractCheckoutUrl(providerResponse: unknown): string | undefined {
+  if (!providerResponse || typeof providerResponse !== "object") return undefined;
+
+  const response = providerResponse as {
+    data?: { checkout_url?: unknown };
+  };
+
+  return typeof response.data?.checkout_url === "string"
+    ? response.data.checkout_url
+    : undefined;
+}
+
 function toDomain(record: PaymentIntentRecord): PaymentIntent {
   return {
     id: record.id,
@@ -25,6 +37,7 @@ function toDomain(record: PaymentIntentRecord): PaymentIntent {
     paymentMethod: record.paymentMethod ?? undefined,
     provider: record.provider ?? undefined,
     providerReference: record.providerReference ?? undefined,
+    checkoutUrl: extractCheckoutUrl(record.providerResponse),
     clientSecret: record.clientSecret,
     metadata: (record.metadata ?? {}) as Record<string, unknown>,
     createdAt: record.createdAt.toISOString(),
