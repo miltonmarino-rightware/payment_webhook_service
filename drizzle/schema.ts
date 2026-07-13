@@ -10,12 +10,6 @@ import {
   serial,
 } from "drizzle-orm/pg-core";
 
-/**
- * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
- */
-
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 
 export const paymentStatusEnum = pgEnum("payment_status", [
@@ -33,6 +27,30 @@ export const notificationStatusEnum = pgEnum("notification_status", [
   "FAILED",
 ]);
 
+export const paymentIntentStatusEnum = pgEnum("payment_intent_status", [
+  "requires_payment_method",
+  "requires_confirmation",
+  "processing",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
+export const paymentMethodTypeEnum = pgEnum("payment_method_type", [
+  "mpesa",
+  "emola",
+  "bank",
+  "card",
+]);
+
+export const providerCodeEnum = pgEnum("provider_code", [
+  "paysuite",
+  "mpesa_direct",
+  "emola_direct",
+  "bank_direct",
+]);
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
@@ -48,36 +66,20 @@ export const users = pgTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-/**
- * Payments table - tracks all payment transactions
- * Stores references to payments but NOT the actual money
- */
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
-
-  // Transaction identifiers
   transactionId: varchar("transactionId", { length: 64 }).notNull().unique(),
   operatorReference: varchar("operatorReference", { length: 128 }),
   externalSystemId: varchar("externalSystemId", { length: 128 }).notNull(),
-
-  // Payment details (reference only, not actual money handling)
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).notNull().default("MZN"),
-
-  // State management
   status: paymentStatusEnum("status").notNull().default("CREATED"),
   previousStatus: varchar("previousStatus", { length: 32 }),
-
-  // Operator data
   operatorResponse: jsonb("operatorResponse"),
-
-  // Timestamps
   createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(),
   completedAt: timestamp("completedAt", { withTimezone: false }),
   expiresAt: timestamp("expiresAt", { withTimezone: false }),
-
-  // Metadata
   ipAddress: varchar("ipAddress", { length: 45 }),
   userAgent: text("userAgent"),
 });
@@ -85,56 +87,50 @@ export const payments = pgTable("payments", {
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = typeof payments.$inferInsert;
 
-/**
- * Transaction logs table - immutable audit trail
- * Every event is logged for compliance and debugging
- */
+export const paymentIntents = pgTable("payment_intents", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  merchantId: varchar("merchantId", { length: 128 }).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("MZN"),
+  status: paymentIntentStatusEnum("status").notNull().default("requires_payment_method"),
+  paymentMethod: paymentMethodTypeEnum("paymentMethod"),
+  provider: providerCodeEnum("provider"),
+  providerReference: varchar("providerReference", { length: 128 }),
+  clientSecret: varchar("clientSecret", { length: 128 }).notNull().unique(),
+  orderReference: varchar("orderReference", { length: 128 }),
+  description: text("description"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  providerResponse: jsonb("providerResponse"),
+  createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt", { withTimezone: false }),
+});
+
+export type PaymentIntentRecord = typeof paymentIntents.$inferSelect;
+export type InsertPaymentIntent = typeof paymentIntents.$inferInsert;
+
 export const transactionLogs = pgTable("transaction_logs", {
   id: serial("id").primaryKey(),
-
-  // Reference to payment
   paymentId: integer("paymentId").notNull(),
-
-  // Event details
   eventType: varchar("eventType", { length: 32 }).notNull(),
   details: jsonb("details"),
-
-  // Request metadata
   ipAddress: varchar("ipAddress", { length: 45 }),
   userAgent: text("userAgent"),
-
-  // Timestamp
   createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
 });
 
 export type TransactionLog = typeof transactionLogs.$inferSelect;
 export type InsertTransactionLog = typeof transactionLogs.$inferInsert;
 
-/**
- * Notifications table - tracks external system notifications
- * Manages retry logic and delivery status
- */
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
-
-  // Reference to payment
   paymentId: integer("paymentId").notNull(),
-
-  // External system details
   externalSystemWebhook: varchar("externalSystemWebhook", { length: 512 }).notNull(),
-
-  // Delivery status
   status: notificationStatusEnum("status").notNull().default("PENDING"),
-
-  // Response tracking
   responseStatus: integer("responseStatus"),
   responseBody: text("responseBody"),
-
-  // Retry management
   attemptCount: integer("attemptCount").notNull().default(0),
   nextRetryAt: timestamp("nextRetryAt", { withTimezone: false }),
-
-  // Timestamps
   createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(),
 });
