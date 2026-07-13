@@ -33,6 +33,7 @@ export interface PaymentIntent {
   paymentMethod?: PaymentMethodType;
   provider?: ProviderCode;
   providerReference?: string;
+  checkoutUrl?: string;
   clientSecret: string;
   metadata: Record<string, unknown>;
   createdAt: string;
