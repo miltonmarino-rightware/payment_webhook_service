@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import webhookRoutes from "../webhooks";
 import paymentsRoutes from "../payments";
 import paymentIntentRoutes from "../gateway/payment-intents/paymentIntent.routes";
+import paysuiteWebhookRoutes from "../gateway/webhooks/paysuiteWebhook.routes";
 import { createStripeRouter } from "../routes/stripe.routes";
 import { startNotificationProcessor } from "../notifications";
 import {
@@ -97,6 +98,7 @@ async function startServer() {
   app.use((req, res, next) => {
     const excludedFromMpesaSignature =
       req.originalUrl.startsWith("/webhooks/stripe") ||
+      req.originalUrl.startsWith("/webhooks/paysuite") ||
       req.originalUrl.startsWith("/v1/");
 
     if (excludedFromMpesaSignature) return next();
@@ -125,6 +127,7 @@ async function startServer() {
 
   registerOAuthRoutes(app);
   app.use("/webhooks", webhookRoutes);
+  app.use("/webhooks", paysuiteWebhookRoutes);
   app.use("/payments", paymentsRoutes);
   app.use("/v1", paymentIntentRoutes);
 
