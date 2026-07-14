@@ -51,6 +51,11 @@ export const providerCodeEnum = pgEnum("provider_code", [
   "bank_direct",
 ]);
 
+export const providerWebhookProcessingStatusEnum = pgEnum(
+  "provider_webhook_processing_status",
+  ["received", "processed", "ignored", "failed"]
+);
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
@@ -108,6 +113,26 @@ export const paymentIntents = pgTable("payment_intents", {
 
 export type PaymentIntentRecord = typeof paymentIntents.$inferSelect;
 export type InsertPaymentIntent = typeof paymentIntents.$inferInsert;
+
+export const providerWebhookEvents = pgTable("provider_webhook_events", {
+  id: serial("id").primaryKey(),
+  provider: providerCodeEnum("provider").notNull(),
+  requestId: varchar("requestId", { length: 128 }).notNull().unique(),
+  eventType: varchar("eventType", { length: 64 }).notNull(),
+  providerReference: varchar("providerReference", { length: 128 }),
+  signature: varchar("signature", { length: 256 }),
+  accountId: varchar("accountId", { length: 128 }),
+  payload: jsonb("payload").notNull(),
+  processingStatus: providerWebhookProcessingStatusEnum("processingStatus")
+    .notNull()
+    .default("received"),
+  errorMessage: text("errorMessage"),
+  receivedAt: timestamp("receivedAt", { withTimezone: false }).defaultNow().notNull(),
+  processedAt: timestamp("processedAt", { withTimezone: false }),
+});
+
+export type ProviderWebhookEvent = typeof providerWebhookEvents.$inferSelect;
+export type InsertProviderWebhookEvent = typeof providerWebhookEvents.$inferInsert;
 
 export const transactionLogs = pgTable("transaction_logs", {
   id: serial("id").primaryKey(),
