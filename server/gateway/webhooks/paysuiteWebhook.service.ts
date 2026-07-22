@@ -5,6 +5,7 @@ import {
   type PaymentIntentRecord,
 } from "../../../drizzle/schema";
 import { getDb } from "../../db";
+import { encryptJson, sha256Hex } from "../../security/dataEncryption";
 import type { PaymentIntentStatus } from "../types";
 
 export type PaysuiteWebhookPayload = {
@@ -60,6 +61,21 @@ function validatePayload(payload: PaysuiteWebhookPayload): asserts payload is Pa
   }
 }
 
+function mergeProviderResponse(
+  current: unknown,
+  encryptedWebhook: ReturnType<typeof encryptJson>
+): Record<string, unknown> {
+  const currentObject =
+    current && typeof current === "object" && !Array.isArray(current)
+      ? (current as Record<string, unknown>)
+      : {};
+
+  return {
+    ...currentObject,
+    webhook: encryptedWebhook,
+  };
+}
+
 async function findPaymentIntent(
   providerReference: string,
   orderReference?: string
@@ -109,6 +125,12 @@ export async function processPaysuiteWebhook(
     return { duplicate: true, ignored: false };
   }
 
+  const encryptionContext = `paysuite:${payload.request_id}`;
+  const encryptedPayload = encryptJson(payload, encryptionContext);
+  const signatureFingerprint = context.signature
+    ? sha256Hex(context.signature)
+    : undefined;
+
   const inserted = await db
     .insert(providerWebhookEvents)
     .values({
@@ -116,9 +138,9 @@ export async function processPaysuiteWebhook(
       requestId: payload.request_id,
       eventType: payload.event,
       providerReference: payload.data.id,
-      signature: context.signature,
+      signature: signatureFingerprint,
       accountId: context.accountId,
-      payload,
+      payload: encryptedPayload,
       processingStatus: "received",
     })
     .returning({ id: providerWebhookEvents.id });
@@ -155,7 +177,10 @@ export async function processPaysuiteWebhook(
       .update(paymentIntents)
       .set({
         status: nextStatus,
-        providerResponse: payload,
+        providerResponse: mergeProviderResponse(
+          paymentIntent.providerResponse,
+          encryptedPayload
+        ),
         updatedAt: new Date(),
       })
       .where(eq(paymentIntents.id, paymentIntent.id));
