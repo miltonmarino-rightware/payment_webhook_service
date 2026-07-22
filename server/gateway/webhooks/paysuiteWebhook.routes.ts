@@ -22,17 +22,41 @@ function verifySignature(rawBody: Buffer, signature: string, secret: string): bo
   return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
 }
 
-function errorStatus(error: unknown): number {
+function errorResponse(error: unknown): {
+  status: number;
+  body: { received: false; error: string };
+} {
   const message = error instanceof Error ? error.message : "internal_error";
 
-  if (message === "paysuite_webhook_secret_missing") return 503;
-  if (message === "paysuite_webhook_signature_missing") return 401;
-  if (message === "paysuite_webhook_invalid_signature") return 401;
-  if (message === "payment_intent_not_found") return 404;
-  if (message === "database_unavailable") return 503;
-  if (message.startsWith("paysuite_webhook_")) return 400;
+  if (message === "paysuite_webhook_secret_missing") {
+    return { status: 503, body: { received: false, error: "webhook_not_configured" } };
+  }
+  if (
+    message === "data_encryption_key_missing" ||
+    message === "data_encryption_key_invalid"
+  ) {
+    return {
+      status: 503,
+      body: { received: false, error: "security_configuration_unavailable" },
+    };
+  }
+  if (message === "paysuite_webhook_signature_missing") {
+    return { status: 401, body: { received: false, error: "signature_required" } };
+  }
+  if (message === "paysuite_webhook_invalid_signature") {
+    return { status: 401, body: { received: false, error: "invalid_signature" } };
+  }
+  if (message === "payment_intent_not_found") {
+    return { status: 404, body: { received: false, error: message } };
+  }
+  if (message === "database_unavailable") {
+    return { status: 503, body: { received: false, error: "service_unavailable" } };
+  }
+  if (message.startsWith("paysuite_webhook_")) {
+    return { status: 400, body: { received: false, error: message } };
+  }
 
-  return 500;
+  return { status: 500, body: { received: false, error: "internal_error" } };
 }
 
 router.post("/paysuite", async (req: RequestWithRawBody, res: Response) => {
@@ -55,8 +79,14 @@ router.post("/paysuite", async (req: RequestWithRawBody, res: Response) => {
 
     return res.status(200).json({ received: true, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "internal_error";
-    return res.status(errorStatus(error)).json({ received: false, error: message });
+    const internalMessage = error instanceof Error ? error.message : "unknown_error";
+    const response = errorResponse(error);
+
+    if (response.status >= 500) {
+      console.error("[PaysuiteWebhook] Request failed:", internalMessage);
+    }
+
+    return res.status(response.status).json(response.body);
   }
 });
 
