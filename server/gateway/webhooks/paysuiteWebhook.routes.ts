@@ -6,15 +6,59 @@ import {
 } from "./paysuiteWebhook.service";
 
 const router = Router();
+const DEFAULT_WEBHOOK_TOLERANCE_SECONDS = 300;
 
-type RequestWithRawBody = Request & { rawBody?: Buffer };
+export type RequestWithRawBody = Request & { rawBody?: Buffer };
 
 function normalizeSignature(signature: string): string {
   return signature.startsWith("sha256=") ? signature.slice("sha256=".length) : signature;
 }
 
-function verifySignature(rawBody: Buffer, signature: string, secret: string): boolean {
-  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+export function parseWebhookTimestamp(timestamp: string, nowMs = Date.now()): number {
+  if (!/^\d{10,13}$/.test(timestamp)) {
+    throw new Error("paysuite_webhook_timestamp_invalid");
+  }
+
+  const parsed = Number(timestamp);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error("paysuite_webhook_timestamp_invalid");
+  }
+
+  const timestampMs = timestamp.length === 10 ? parsed * 1000 : parsed;
+  if (!Number.isFinite(timestampMs) || timestampMs <= 0) {
+    throw new Error("paysuite_webhook_timestamp_invalid");
+  }
+
+  const toleranceSeconds = Number(
+    process.env.PAYSUITE_WEBHOOK_TOLERANCE_SECONDS ?? DEFAULT_WEBHOOK_TOLERANCE_SECONDS
+  );
+  const safeToleranceSeconds =
+    Number.isFinite(toleranceSeconds) && toleranceSeconds > 0
+      ? toleranceSeconds
+      : DEFAULT_WEBHOOK_TOLERANCE_SECONDS;
+
+  const ageMs = Math.abs(nowMs - timestampMs);
+  if (ageMs > safeToleranceSeconds * 1000) {
+    throw new Error("paysuite_webhook_timestamp_expired");
+  }
+
+  return timestampMs;
+}
+
+export function createSignedWebhookMessage(timestamp: string, rawBody: Buffer): Buffer {
+  return Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]);
+}
+
+export function verifySignature(
+  rawBody: Buffer,
+  timestamp: string,
+  signature: string,
+  secret: string
+): boolean {
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(createSignedWebhookMessage(timestamp, rawBody))
+    .digest("hex");
   const received = normalizeSignature(signature).toLowerCase();
 
   if (!/^[a-f0-9]{64}$/.test(received)) return false;
@@ -22,7 +66,7 @@ function verifySignature(rawBody: Buffer, signature: string, secret: string): bo
   return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
 }
 
-function errorResponse(error: unknown): {
+export function errorResponse(error: unknown): {
   status: number;
   body: { received: false; error: string };
 } {
@@ -42,6 +86,15 @@ function errorResponse(error: unknown): {
   }
   if (message === "paysuite_webhook_signature_missing") {
     return { status: 401, body: { received: false, error: "signature_required" } };
+  }
+  if (message === "paysuite_webhook_timestamp_missing") {
+    return { status: 401, body: { received: false, error: "timestamp_required" } };
+  }
+  if (
+    message === "paysuite_webhook_timestamp_invalid" ||
+    message === "paysuite_webhook_timestamp_expired"
+  ) {
+    return { status: 401, body: { received: false, error: "invalid_timestamp" } };
   }
   if (message === "paysuite_webhook_invalid_signature") {
     return { status: 401, body: { received: false, error: "invalid_signature" } };
@@ -67,8 +120,12 @@ router.post("/paysuite", async (req: RequestWithRawBody, res: Response) => {
     const signature = req.get("x-webhook-signature");
     if (!signature) throw new Error("paysuite_webhook_signature_missing");
 
+    const timestamp = req.get("x-webhook-timestamp");
+    if (!timestamp) throw new Error("paysuite_webhook_timestamp_missing");
+    parseWebhookTimestamp(timestamp);
+
     const rawBody = req.rawBody;
-    if (!rawBody || !verifySignature(rawBody, signature, secret)) {
+    if (!rawBody || !verifySignature(rawBody, timestamp, signature, secret)) {
       throw new Error("paysuite_webhook_invalid_signature");
     }
 
