@@ -15,6 +15,13 @@
       "when": 1784721600000,
       "tag": "0001_merchant_security",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784725200000,
+      "tag": "0002_outbound_webhooks",
+      "breakpoints": true
     }
   ]
 }
