@@ -64,18 +64,25 @@ export function requireMerchantScope(scope: MerchantScope) {
 }
 
 export async function enforceRateLimit(req: MerchantRequest, res: Response, next: NextFunction) {
-  const redis = req.app.locals.redis;
-  if (!redis || !req.merchant) return res.status(503).json({ error: "rate_limit_unavailable" });
-  const windowSeconds = Number(process.env.MERCHANT_RATE_LIMIT_WINDOW_SECONDS ?? 60);
-  const maxRequests = Number(process.env.MERCHANT_RATE_LIMIT_MAX_REQUESTS ?? 120);
-  const bucket = Math.floor(Date.now() / 1000 / windowSeconds);
-  const key = `gateway:ratelimit:${req.merchant.merchantId}:${bucket}`;
-  const count = await redis.incr(key);
-  if (count === 1) await redis.expire(key, windowSeconds + 1);
-  res.setHeader("X-RateLimit-Limit", String(maxRequests));
-  res.setHeader("X-RateLimit-Remaining", String(Math.max(0, maxRequests - count)));
-  if (count > maxRequests) return res.status(429).json({ error: "rate_limit_exceeded" });
-  return next();
+  try {
+    const redis = req.app.locals.redis;
+    if (!redis || !req.merchant) return res.status(503).json({ error: "rate_limit_unavailable" });
+    const configuredWindow = Number(process.env.MERCHANT_RATE_LIMIT_WINDOW_SECONDS ?? 60);
+    const configuredMax = Number(process.env.MERCHANT_RATE_LIMIT_MAX_REQUESTS ?? 120);
+    const windowSeconds = Number.isFinite(configuredWindow) && configuredWindow > 0 ? configuredWindow : 60;
+    const maxRequests = Number.isFinite(configuredMax) && configuredMax > 0 ? configuredMax : 120;
+    const bucket = Math.floor(Date.now() / 1000 / windowSeconds);
+    const key = `gateway:ratelimit:${req.merchant.merchantId}:${bucket}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, windowSeconds + 1);
+    res.setHeader("X-RateLimit-Limit", String(maxRequests));
+    res.setHeader("X-RateLimit-Remaining", String(Math.max(0, maxRequests - count)));
+    if (count > maxRequests) return res.status(429).json({ error: "rate_limit_exceeded" });
+    return next();
+  } catch (error) {
+    console.error("[MerchantRateLimit] Redis operation failed:", error instanceof Error ? error.message : "unknown_error");
+    return res.status(503).json({ error: "rate_limit_unavailable" });
+  }
 }
 
 export async function findIdempotencyRecord(merchantId: string, operation: string, key: string, requestHash: string) {
