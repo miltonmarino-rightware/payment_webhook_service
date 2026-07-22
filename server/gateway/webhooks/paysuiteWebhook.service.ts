@@ -14,6 +14,7 @@ export type PaysuiteWebhookPayload = {
     id?: string;
     reference?: string;
     amount?: number;
+    currency?: string;
     transaction?: {
       id?: string;
       method?: string;
@@ -31,6 +32,16 @@ export type PaysuiteWebhookResult = {
   status?: PaymentIntentStatus;
 };
 
+const ALLOWED_TRANSITIONS: Record<PaymentIntentStatus, ReadonlySet<PaymentIntentStatus>> = {
+  requires_payment_method: new Set(),
+  requires_confirmation: new Set(["processing", "failed", "cancelled"]),
+  processing: new Set(["succeeded", "failed", "cancelled", "expired"]),
+  succeeded: new Set(),
+  failed: new Set(),
+  cancelled: new Set(),
+  expired: new Set(),
+};
+
 function mapEventToStatus(eventType: string): PaymentIntentStatus | null {
   switch (eventType) {
     case "payment.success":
@@ -45,7 +56,7 @@ function mapEventToStatus(eventType: string): PaymentIntentStatus | null {
 function validatePayload(payload: PaysuiteWebhookPayload): asserts payload is PaysuiteWebhookPayload & {
   event: string;
   request_id: string;
-  data: { id: string; reference?: string };
+  data: { id: string; reference?: string; amount?: number; currency?: string };
 } {
   if (!payload || typeof payload !== "object") {
     throw new Error("paysuite_webhook_invalid_payload");
@@ -58,6 +69,59 @@ function validatePayload(payload: PaysuiteWebhookPayload): asserts payload is Pa
   }
   if (!payload.data?.id || typeof payload.data.id !== "string") {
     throw new Error("paysuite_webhook_payment_id_required");
+  }
+}
+
+function toMinorUnits(value: number | string): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) throw new Error("paysuite_webhook_amount_invalid");
+  return Math.round((numeric + Number.EPSILON) * 100);
+}
+
+export function assertFinancialMatch(
+  paymentIntent: Pick<
+    PaymentIntentRecord,
+    "amount" | "currency" | "orderReference" | "provider" | "providerReference"
+  >,
+  payload: PaysuiteWebhookPayload & {
+    data: { id: string; reference?: string; amount?: number; currency?: string };
+  }
+): void {
+  if (paymentIntent.provider !== "paysuite") {
+    throw new Error("paysuite_webhook_provider_mismatch");
+  }
+  if (!paymentIntent.providerReference || paymentIntent.providerReference !== payload.data.id) {
+    throw new Error("paysuite_webhook_provider_reference_mismatch");
+  }
+  if (typeof payload.data.amount !== "number") {
+    throw new Error("paysuite_webhook_amount_required");
+  }
+  if (toMinorUnits(paymentIntent.amount) !== toMinorUnits(payload.data.amount)) {
+    throw new Error("paysuite_webhook_amount_mismatch");
+  }
+  if (!payload.data.currency || typeof payload.data.currency !== "string") {
+    throw new Error("paysuite_webhook_currency_required");
+  }
+  if (paymentIntent.currency.toUpperCase() !== payload.data.currency.toUpperCase()) {
+    throw new Error("paysuite_webhook_currency_mismatch");
+  }
+  if (paymentIntent.orderReference) {
+    if (!payload.data.reference) {
+      throw new Error("paysuite_webhook_reference_required");
+    }
+    if (paymentIntent.orderReference !== payload.data.reference) {
+      throw new Error("paysuite_webhook_reference_mismatch");
+    }
+  }
+}
+
+export function assertPaymentIntentTransition(
+  currentStatus: PaymentIntentStatus,
+  nextStatus: PaymentIntentStatus
+): void {
+  if (currentStatus === nextStatus) return;
+  if (!ALLOWED_TRANSITIONS[currentStatus]?.has(nextStatus)) {
+    throw new Error("payment_intent_transition_not_allowed");
   }
 }
 
@@ -76,36 +140,6 @@ function mergeProviderResponse(
   };
 }
 
-async function findPaymentIntent(
-  providerReference: string,
-  orderReference?: string
-): Promise<PaymentIntentRecord | null> {
-  const db = await getDb();
-  if (!db) throw new Error("database_unavailable");
-
-  const byProviderReference = await db
-    .select()
-    .from(paymentIntents)
-    .where(
-      and(
-        eq(paymentIntents.provider, "paysuite"),
-        eq(paymentIntents.providerReference, providerReference)
-      )
-    )
-    .limit(1);
-
-  if (byProviderReference[0]) return byProviderReference[0];
-  if (!orderReference) return null;
-
-  const byOrderReference = await db
-    .select()
-    .from(paymentIntents)
-    .where(eq(paymentIntents.orderReference, orderReference))
-    .limit(1);
-
-  return byOrderReference[0] ?? null;
-}
-
 export async function processPaysuiteWebhook(
   payload: PaysuiteWebhookPayload,
   context: { signature?: string; accountId?: string }
@@ -114,16 +148,6 @@ export async function processPaysuiteWebhook(
 
   const db = await getDb();
   if (!db) throw new Error("database_unavailable");
-
-  const existingEvent = await db
-    .select({ id: providerWebhookEvents.id })
-    .from(providerWebhookEvents)
-    .where(eq(providerWebhookEvents.requestId, payload.request_id))
-    .limit(1);
-
-  if (existingEvent[0]) {
-    return { duplicate: true, ignored: false };
-  }
 
   const encryptionContext = `paysuite:${payload.request_id}`;
   const encryptedPayload = encryptJson(payload, encryptionContext);
@@ -143,10 +167,13 @@ export async function processPaysuiteWebhook(
       payload: encryptedPayload,
       processingStatus: "received",
     })
+    .onConflictDoNothing({ target: providerWebhookEvents.requestId })
     .returning({ id: providerWebhookEvents.id });
 
   const webhookEventId = inserted[0]?.id;
-  if (!webhookEventId) throw new Error("paysuite_webhook_event_creation_failed");
+  if (!webhookEventId) {
+    return { duplicate: true, ignored: false };
+  }
 
   try {
     const nextStatus = mapEventToStatus(payload.event);
@@ -159,41 +186,56 @@ export async function processPaysuiteWebhook(
       return { duplicate: false, ignored: true };
     }
 
-    const paymentIntent = await findPaymentIntent(payload.data.id, payload.data.reference);
-    if (!paymentIntent) {
-      await db
-        .update(providerWebhookEvents)
+    const result = await db.transaction(async (tx) => {
+      const matched = await tx
+        .select()
+        .from(paymentIntents)
+        .where(
+          and(
+            eq(paymentIntents.provider, "paysuite"),
+            eq(paymentIntents.providerReference, payload.data.id)
+          )
+        )
+        .limit(1);
+
+      const paymentIntent = matched[0];
+      if (!paymentIntent) throw new Error("payment_intent_not_found");
+
+      assertFinancialMatch(paymentIntent, payload);
+      assertPaymentIntentTransition(paymentIntent.status, nextStatus);
+
+      const updated = await tx
+        .update(paymentIntents)
         .set({
-          processingStatus: "failed",
-          errorMessage: "payment_intent_not_found",
-          processedAt: new Date(),
+          status: nextStatus,
+          providerResponse: mergeProviderResponse(
+            paymentIntent.providerResponse,
+            encryptedPayload
+          ),
+          updatedAt: new Date(),
         })
+        .where(
+          and(
+            eq(paymentIntents.id, paymentIntent.id),
+            eq(paymentIntents.status, paymentIntent.status)
+          )
+        )
+        .returning({ id: paymentIntents.id });
+
+      if (!updated[0]) throw new Error("payment_intent_concurrent_update");
+
+      await tx
+        .update(providerWebhookEvents)
+        .set({ processingStatus: "processed", processedAt: new Date() })
         .where(eq(providerWebhookEvents.id, webhookEventId));
 
-      throw new Error("payment_intent_not_found");
-    }
-
-    await db
-      .update(paymentIntents)
-      .set({
-        status: nextStatus,
-        providerResponse: mergeProviderResponse(
-          paymentIntent.providerResponse,
-          encryptedPayload
-        ),
-        updatedAt: new Date(),
-      })
-      .where(eq(paymentIntents.id, paymentIntent.id));
-
-    await db
-      .update(providerWebhookEvents)
-      .set({ processingStatus: "processed", processedAt: new Date() })
-      .where(eq(providerWebhookEvents.id, webhookEventId));
+      return paymentIntent.id;
+    });
 
     return {
       duplicate: false,
       ignored: false,
-      paymentIntentId: paymentIntent.id,
+      paymentIntentId: result,
       status: nextStatus,
     };
   } catch (error) {
