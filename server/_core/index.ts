@@ -11,6 +11,7 @@ import webhookRoutes from "../webhooks";
 import paymentsRoutes from "../payments";
 import paymentIntentRoutes from "../gateway/payment-intents/paymentIntent.routes";
 import paysuiteWebhookRoutes from "../gateway/webhooks/paysuiteWebhook.routes";
+import { startOutboundWebhookProcessor } from "../gateway/webhooks/outboundWebhook.service";
 import { createStripeRouter } from "../routes/stripe.routes";
 import { startNotificationProcessor } from "../notifications";
 import {
@@ -159,6 +160,7 @@ async function startServer() {
   });
 
   startNotificationProcessor(60000);
+  startOutboundWebhookProcessor(Number(process.env.OUTBOUND_WEBHOOK_PROCESSOR_INTERVAL_MS ?? 5000));
 }
 
 startServer().catch(console.error);
