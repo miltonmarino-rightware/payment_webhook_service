@@ -57,7 +57,7 @@ async function startServer() {
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.header(
       "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Idempotency-Key"
     );
     res.header("Access-Control-Allow-Credentials", "true");
 
@@ -116,6 +116,7 @@ async function startServer() {
   });
 
   await redis.connect();
+  app.locals.redis = redis;
 
   const auditTrailService = new AuditTrailService(redis);
   const complianceModeService = new ComplianceModeService(
