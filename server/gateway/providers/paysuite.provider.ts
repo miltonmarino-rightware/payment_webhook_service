@@ -47,7 +47,7 @@ export class PaysuiteProvider implements PaymentProvider {
       return {
         success: false,
         status: "failed",
-        error: "paysuite_api_token_missing",
+        error: "provider_not_configured:paysuite",
       };
     }
 
