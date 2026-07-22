@@ -15,6 +15,7 @@
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "merchant:key:create": "tsx scripts/create_merchant_api_key.ts",
+    "merchant:key:revoke": "tsx scripts/revoke_merchant_api_key.ts",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "qr": "node scripts/generate_qr.mjs"
