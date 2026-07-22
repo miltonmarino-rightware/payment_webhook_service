@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { eq } from "drizzle-orm";
 import { merchantWebhookEndpoints, merchants } from "../drizzle/schema";
 import { getDb } from "../server/db";
+import { assertSafeWebhookUrl } from "../server/gateway/webhooks/outboundWebhook.service";
 import { encryptJson } from "../server/security/dataEncryption";
 
 function required(name: string): string {
@@ -14,10 +15,7 @@ function required(name: string): string {
 async function main() {
   const merchantId = required("MERCHANT_WEBHOOK_MERCHANT_ID");
   const url = required("MERCHANT_WEBHOOK_URL");
-  const parsed = new URL(url);
-  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
-    throw new Error("merchant_webhook_https_required");
-  }
+  await assertSafeWebhookUrl(url);
 
   const db = await getDb();
   if (!db) throw new Error("database_unavailable");
