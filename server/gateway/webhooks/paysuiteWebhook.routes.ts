@@ -105,8 +105,25 @@ export function errorResponse(error: unknown): {
   if (message === "database_unavailable") {
     return { status: 503, body: { received: false, error: "service_unavailable" } };
   }
+
+  const conflictErrors = new Set([
+    "payment_intent_transition_not_allowed",
+    "payment_intent_concurrent_update",
+    "paysuite_webhook_provider_mismatch",
+    "paysuite_webhook_provider_reference_mismatch",
+    "paysuite_webhook_amount_required",
+    "paysuite_webhook_amount_mismatch",
+    "paysuite_webhook_currency_required",
+    "paysuite_webhook_currency_mismatch",
+    "paysuite_webhook_reference_required",
+    "paysuite_webhook_reference_mismatch",
+  ]);
+
+  if (conflictErrors.has(message)) {
+    return { status: 409, body: { received: false, error: "webhook_conflict" } };
+  }
   if (message.startsWith("paysuite_webhook_")) {
-    return { status: 400, body: { received: false, error: message } };
+    return { status: 400, body: { received: false, error: "invalid_webhook_payload" } };
   }
 
   return { status: 500, body: { received: false, error: "internal_error" } };
