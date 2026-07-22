@@ -8,6 +8,7 @@ import {
   decimal,
   jsonb,
   serial,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
@@ -56,6 +57,8 @@ export const providerWebhookProcessingStatusEnum = pgEnum(
   ["received", "processed", "ignored", "failed"]
 );
 
+export const merchantStatusEnum = pgEnum("merchant_status", ["active", "suspended", "revoked"]);
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
@@ -70,6 +73,54 @@ export const users = pgTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+export const merchants = pgTable("merchants", {
+  id: varchar("id", { length: 128 }).primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  status: merchantStatusEnum("status").notNull().default("active"),
+  createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(),
+});
+
+export const merchantApiKeys = pgTable("merchant_api_keys", {
+  id: serial("id").primaryKey(),
+  merchantId: varchar("merchantId", { length: 128 })
+    .notNull()
+    .references(() => merchants.id),
+  keyPrefix: varchar("keyPrefix", { length: 32 }).notNull().unique(),
+  keyHash: varchar("keyHash", { length: 64 }).notNull().unique(),
+  scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
+  environment: varchar("environment", { length: 16 }).notNull().default("test"),
+  lastUsedAt: timestamp("lastUsedAt", { withTimezone: false }),
+  expiresAt: timestamp("expiresAt", { withTimezone: false }),
+  revokedAt: timestamp("revokedAt", { withTimezone: false }),
+  createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
+});
+
+export const idempotencyRecords = pgTable(
+  "idempotency_records",
+  {
+    id: serial("id").primaryKey(),
+    merchantId: varchar("merchantId", { length: 128 })
+      .notNull()
+      .references(() => merchants.id),
+    operation: varchar("operation", { length: 64 }).notNull(),
+    idempotencyKey: varchar("idempotencyKey", { length: 128 }).notNull(),
+    requestHash: varchar("requestHash", { length: 64 }).notNull(),
+    responseStatus: integer("responseStatus"),
+    responseBody: jsonb("responseBody"),
+    resourceId: varchar("resourceId", { length: 128 }),
+    createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
+    expiresAt: timestamp("expiresAt", { withTimezone: false }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idempotency_records_merchant_operation_key_unique").on(
+      table.merchantId,
+      table.operation,
+      table.idempotencyKey
+    ),
+  ]
+);
 
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
