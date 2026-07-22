@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { paymentIntents, type PaymentIntentRecord } from "../../../drizzle/schema";
 import { getDb } from "../../db";
 import { resolvePaymentProvider } from "../providers/provider.factory";
@@ -46,7 +46,8 @@ function toDomain(record: PaymentIntentRecord): PaymentIntent {
 }
 
 export async function createPaymentIntent(
-  input: CreatePaymentIntentInput
+  merchantId: string,
+  input: Omit<CreatePaymentIntentInput, "merchantId"> & { merchantId?: string }
 ): Promise<PaymentIntent> {
   if (!Number.isFinite(input.amount) || input.amount <= 0) {
     throw new Error("invalid_amount");
@@ -56,8 +57,8 @@ export async function createPaymentIntent(
     throw new Error("unsupported_currency");
   }
 
-  if (!input.merchantId?.trim()) {
-    throw new Error("merchant_id_required");
+  if (input.merchantId && input.merchantId !== merchantId) {
+    throw new Error("merchant_id_mismatch");
   }
 
   const db = await getDb();
@@ -68,7 +69,7 @@ export async function createPaymentIntent(
     .insert(paymentIntents)
     .values({
       id: createPublicId("pi"),
-      merchantId: input.merchantId.trim(),
+      merchantId,
       amount: input.amount.toFixed(2),
       currency: input.currency,
       status: "requires_payment_method",
@@ -85,14 +86,14 @@ export async function createPaymentIntent(
   return toDomain(result[0]);
 }
 
-export async function getPaymentIntent(id: string): Promise<PaymentIntent | null> {
+export async function getPaymentIntent(id: string, merchantId: string): Promise<PaymentIntent | null> {
   const db = await getDb();
   if (!db) throw new Error("database_unavailable");
 
   const result = await db
     .select()
     .from(paymentIntents)
-    .where(eq(paymentIntents.id, id))
+    .where(and(eq(paymentIntents.id, id), eq(paymentIntents.merchantId, merchantId)))
     .limit(1);
 
   return result[0] ? toDomain(result[0]) : null;
@@ -100,12 +101,13 @@ export async function getPaymentIntent(id: string): Promise<PaymentIntent | null
 
 export async function confirmPaymentIntent(
   id: string,
+  merchantId: string,
   input: ConfirmPaymentIntentInput
 ): Promise<PaymentIntent> {
   const db = await getDb();
   if (!db) throw new Error("database_unavailable");
 
-  const existing = await getPaymentIntent(id);
+  const existing = await getPaymentIntent(id, merchantId);
   if (!existing) throw new Error("payment_intent_not_found");
 
   if (["succeeded", "failed", "cancelled", "expired"].includes(existing.status)) {
@@ -137,7 +139,7 @@ export async function confirmPaymentIntent(
       providerResponse: providerResult.raw,
       updatedAt: new Date(),
     })
-    .where(eq(paymentIntents.id, id))
+    .where(and(eq(paymentIntents.id, id), eq(paymentIntents.merchantId, merchantId)))
     .returning();
 
   if (!updated[0]) throw new Error("payment_intent_update_failed");
