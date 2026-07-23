@@ -1,8 +1,10 @@
 import type { PaymentProvider, ProviderCode } from "../types";
+import { MockProvider } from "./mock.provider";
 import { PaysuiteProvider } from "./paysuite.provider";
 
 const providers: Partial<Record<ProviderCode, PaymentProvider>> = {
   paysuite: new PaysuiteProvider(),
+  mock: new MockProvider(),
 };
 
 export function resolvePaymentProvider(provider: ProviderCode = "paysuite"): PaymentProvider {
