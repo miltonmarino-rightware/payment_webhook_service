@@ -1,0 +1,160 @@
+openapi: 3.1.0
+info:
+  title: GATEAWAY Payment Orchestrator API
+  version: 1.0.0-sandbox
+  description: Stable merchant-facing payment orchestration contract. GATEAWAY does not receive card numbers, CVV or PINs.
+servers:
+  - url: http://localhost:3000
+    description: Local sandbox
+security:
+  - ApiKeyAuth: []
+paths:
+  /api/health:
+    get:
+      security: []
+      summary: Health check
+      responses:
+        '200':
+          description: Service healthy
+  /v1/payment_intents:
+    post:
+      summary: Create a Payment Intent
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentIntentRequest'
+      responses:
+        '200':
+          description: Payment Intent created or idempotently replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntentEnvelope'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/payment_intents/{id}:
+    get:
+      summary: Retrieve a Payment Intent owned by the authenticated merchant
+      parameters:
+        - $ref: '#/components/parameters/PaymentIntentId'
+      responses:
+        '200':
+          description: Payment Intent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntentEnvelope'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/payment_intents/{id}/confirm:
+    post:
+      summary: Confirm a Payment Intent
+      parameters:
+        - $ref: '#/components/parameters/PaymentIntentId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmPaymentIntentRequest'
+      responses:
+        '200':
+          description: Confirmed Payment Intent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntentEnvelope'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  parameters:
+    PaymentIntentId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^pi_[a-f0-9]+$' }
+    IdempotencyKey:
+      name: idempotency-key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 255 }
+  schemas:
+    CreatePaymentIntentRequest:
+      type: object
+      additionalProperties: false
+      required: [amount, currency]
+      properties:
+        amount: { type: number, exclusiveMinimum: 0, examples: [850] }
+        currency: { type: string, enum: [MZN] }
+        orderReference: { type: string, maxLength: 128 }
+        description: { type: string, maxLength: 512 }
+        metadata: { type: object, additionalProperties: true }
+    ConfirmPaymentIntentRequest:
+      type: object
+      additionalProperties: false
+      required: [paymentMethod]
+      properties:
+        paymentMethod: { type: string, enum: [mpesa, emola, bank, card] }
+        customerPhone: { type: string, examples: ['258840000001'] }
+        provider: { type: string, enum: [paysuite, mock, mpesa_direct, emola_direct, bank_direct] }
+    PaymentIntent:
+      type: object
+      required: [id, amount, currency, merchantId, status, clientSecret, metadata, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        amount: { type: number }
+        currency: { type: string, enum: [MZN] }
+        merchantId: { type: string }
+        orderReference: { type: string }
+        description: { type: string }
+        status: { type: string, enum: [requires_payment_method, requires_confirmation, processing, succeeded, failed, cancelled, expired] }
+        paymentMethod: { type: string }
+        provider: { type: string }
+        providerReference: { type: string }
+        checkoutUrl: { type: string, format: uri }
+        clientSecret: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PaymentIntentEnvelope:
+      type: object
+      required: [paymentIntent]
+      properties:
+        paymentIntent: { $ref: '#/components/schemas/PaymentIntent' }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid request
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Missing or invalid API key
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Resource not found or not owned by merchant
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: State or idempotency conflict
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: Rate limit exceeded
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
