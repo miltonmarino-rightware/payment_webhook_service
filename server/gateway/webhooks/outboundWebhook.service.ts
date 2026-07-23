@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import dns from "dns/promises";
 import net from "net";
-import { and, eq, inArray, lte } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   merchantWebhookEndpoints,
   outboundWebhookEvents,
@@ -144,7 +144,7 @@ async function deliverOne(eventId: number): Promise<void> {
 export async function processOutboundWebhookQueue(limit = 25): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("database_unavailable");
-  const due = await db.select({ id: outboundWebhookEvents.id }).from(outboundWebhookEvents).where(and(inArray(outboundWebhookEvents.status, ["queued", "retrying"]), lte(outboundWebhookEvents.nextAttemptAt, new Date()))).limit(limit);
+  const due = await db.select({ id: outboundWebhookEvents.id }).from(outboundWebhookEvents).where(and(inArray(outboundWebhookEvents.status, ["queued", "retrying"]), sql`${outboundWebhookEvents.nextAttemptAt} <= NOW()`)).limit(limit);
   for (const event of due) await deliverOne(event.id);
 }
 
