@@ -11,7 +11,7 @@ export type PaymentIntentStatus =
 
 export type PaymentMethodType = "mpesa" | "emola" | "bank" | "card";
 
-export type ProviderCode = "paysuite" | "mpesa_direct" | "emola_direct" | "bank_direct";
+export type ProviderCode = "paysuite" | "mock" | "mpesa_direct" | "emola_direct" | "bank_direct";
 
 export interface CreatePaymentIntentInput {
   amount: number;
