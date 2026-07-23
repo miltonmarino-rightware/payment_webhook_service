@@ -13,6 +13,7 @@
     "lint": "expo lint",
     "format": "prettier --write .",
     "test": "vitest run",
+    "test:integration-contract": "vitest run tests/mock-provider.test.ts tests/merchant-security.test.ts tests/outbound-webhook-security.test.ts tests/payment-intent-errors.test.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "merchant:key:create": "tsx scripts/create_merchant_api_key.ts",
     "merchant:key:revoke": "tsx scripts/revoke_merchant_api_key.ts",
