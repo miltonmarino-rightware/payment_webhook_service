@@ -1,0 +1,51 @@
+{
+  "info": {
+    "name": "GATEAWAY Sandbox",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "apiKey", "value": "" },
+    { "key": "paymentIntentId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/health" }
+    },
+    {
+      "name": "Create Payment Intent",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "content-type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{apiKey}}" },
+          { "key": "idempotency-key", "value": "{{$guid}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"amount\": 850,\n  \"currency\": \"MZN\",\n  \"orderReference\": \"ORDER-POSTMAN-001\"\n}" },
+        "url": "{{baseUrl}}/v1/payment_intents"
+      }
+    },
+    {
+      "name": "Confirm Payment Intent (Mock)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "content-type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{apiKey}}" },
+          { "key": "idempotency-key", "value": "{{$guid}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"paymentMethod\": \"mpesa\",\n  \"customerPhone\": \"258840000001\",\n  \"provider\": \"mock\"\n}" },
+        "url": "{{baseUrl}}/v1/payment_intents/{{paymentIntentId}}/confirm"
+      }
+    },
+    {
+      "name": "Get Payment Intent",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "x-api-key", "value": "{{apiKey}}" }],
+        "url": "{{baseUrl}}/v1/payment_intents/{{paymentIntentId}}"
+      }
+    }
+  ]
+}
