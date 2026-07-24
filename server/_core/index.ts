@@ -25,6 +25,10 @@ import { AuditTrailService } from "../compliance/auditTrail.service";
 import { ComplianceModeService } from "../compliance/complianceMode.service";
 import { registerCompliancePipelineMiddleware } from "../compliance/compliancePipeline.middleware";
 import { createClient } from "redis";
+import {
+  registerProductionReadinessRoutes,
+  startOperationalMaintenance,
+} from "../operations/productionReadiness";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -50,10 +54,16 @@ async function startServer() {
   const server = createServer(app);
   await initDatabaseSchema();
 
+  app.disable("x-powered-by");
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin) {
+    const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (origin && (process.env.NODE_ENV !== "production" || allowedOrigins.includes(origin))) {
       res.header("Access-Control-Allow-Origin", origin);
+      res.header("Vary", "Origin");
     }
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.header(
@@ -61,9 +71,12 @@ async function startServer() {
       "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Idempotency-Key"
     );
     res.header("Access-Control-Allow-Credentials", "true");
+    res.header("X-Content-Type-Options", "nosniff");
+    res.header("X-Frame-Options", "DENY");
+    res.header("Referrer-Policy", "no-referrer");
 
     if (req.method === "OPTIONS") {
-      res.sendStatus(200);
+      res.sendStatus(204);
       return;
     }
     next();
@@ -71,13 +84,13 @@ async function startServer() {
 
   app.use(
     express.json({
-      limit: "50mb",
+      limit: process.env.REQUEST_BODY_LIMIT ?? "1mb",
       verify: (req: any, _res, buf) => {
         req.rawBody = buf;
       },
     })
   );
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(express.urlencoded({ limit: process.env.REQUEST_BODY_LIMIT ?? "1mb", extended: true }));
 
   const signatureAuditLogger = createSignatureAuditLogger(
     async (event: string, details: Record<string, unknown>) => {
@@ -100,7 +113,9 @@ async function startServer() {
     const excludedFromMpesaSignature =
       req.originalUrl.startsWith("/webhooks/stripe") ||
       req.originalUrl.startsWith("/webhooks/paysuite") ||
-      req.originalUrl.startsWith("/v1/");
+      req.originalUrl.startsWith("/v1/") ||
+      req.originalUrl.startsWith("/api/health/") ||
+      req.originalUrl.startsWith("/internal/");
 
     if (excludedFromMpesaSignature) return next();
     return mpesaMw(req, res, next);
@@ -108,14 +123,8 @@ async function startServer() {
 
   app.use(correlationIdMiddleware);
 
-  const redis = createClient({
-    url: process.env.REDIS_URL,
-  });
-
-  redis.on("error", (err) => {
-    console.error("Redis error:", err);
-  });
-
+  const redis = createClient({ url: process.env.REDIS_URL });
+  redis.on("error", (err) => console.error("Redis error:", err));
   await redis.connect();
   app.locals.redis = redis;
 
@@ -126,6 +135,7 @@ async function startServer() {
   );
 
   registerCompliancePipelineMiddleware(app, auditTrailService, complianceModeService);
+  registerProductionReadinessRoutes(app, redis);
 
   registerOAuthRoutes(app);
   app.use("/webhooks", webhookRoutes);
@@ -137,30 +147,62 @@ async function startServer() {
   app.use("/", stripeRouter);
 
   app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, timestamp: Date.now() });
+    res.json({ ok: true, timestamp: Date.now(), deprecated: true, use: "/api/health/ready" });
   });
 
   app.use(
     "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    })
+    createExpressMiddleware({ router: appRouter, createContext })
   );
 
   const preferredPort = parseInt(process.env.PORT || "3000", 10);
-  const port = await findAvailablePort(preferredPort);
+  const port = process.env.NODE_ENV === "production" ? preferredPort : await findAvailablePort(preferredPort);
+  const outboundTimer = startOutboundWebhookProcessor(
+    Number(process.env.OUTBOUND_WEBHOOK_PROCESSOR_INTERVAL_MS ?? 5000)
+  );
+  const operationsTimer = startOperationalMaintenance(
+    Number(process.env.OPERATIONS_MAINTENANCE_INTERVAL_MS ?? 60000)
+  );
+  startNotificationProcessor(60000);
 
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[api] ${signal} received; starting graceful shutdown`);
+    clearInterval(outboundTimer);
+    clearInterval(operationsTimer);
+    const forceTimer = setTimeout(() => {
+      console.error("[api] graceful shutdown timeout exceeded");
+      process.exit(1);
+    }, Number(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS ?? 15000));
+    forceTimer.unref?.();
 
-  server.listen(port, () => {
+    server.close(async (error) => {
+      try {
+        if (redis.isOpen) await redis.quit();
+      } catch (redisError) {
+        console.error("[api] Redis shutdown failed:", redisError);
+      }
+      clearTimeout(forceTimer);
+      if (error) {
+        console.error("[api] HTTP shutdown failed:", error);
+        process.exit(1);
+      }
+      console.log("[api] graceful shutdown complete");
+      process.exit(0);
+    });
+  };
+
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+
+  server.listen(port, "0.0.0.0", () => {
     console.log(`[api] server listening on port ${port}`);
   });
-
-  startNotificationProcessor(60000);
-  startOutboundWebhookProcessor(Number(process.env.OUTBOUND_WEBHOOK_PROCESSOR_INTERVAL_MS ?? 5000));
 }
 
-startServer().catch(console.error);
+startServer().catch((error) => {
+  console.error("[api] startup failed:", error);
+  process.exitCode = 1;
+});
