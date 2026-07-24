@@ -14,9 +14,11 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:integration-contract": "vitest run tests/mock-provider.test.ts tests/merchant-security.test.ts tests/outbound-webhook-security.test.ts tests/payment-intent-errors.test.ts",
+    "test:production-readiness": "vitest run tests/production-readiness.test.ts tests/mock-provider.test.ts tests/merchant-security.test.ts tests/outbound-webhook-security.test.ts tests/payment-intent-errors.test.ts tests/data-encryption.test.ts tests/paysuite-webhook-security.test.ts tests/paysuite-webhook-financial-security.test.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "merchant:key:create": "tsx scripts/create_merchant_api_key.ts",
     "merchant:key:revoke": "tsx scripts/revoke_merchant_api_key.ts",
+    "operations:maintenance": "tsx scripts/run_operational_maintenance.ts",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "qr": "node scripts/generate_qr.mjs"
