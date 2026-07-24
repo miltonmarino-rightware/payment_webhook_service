@@ -1,5 +1,4 @@
 import type { Express } from "express";
-import type { RedisClientType } from "redis";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { idempotencyRecords, outboundWebhookEvents } from "../../drizzle/schema";
 import { getDb } from "../db";
@@ -11,11 +10,16 @@ export type ReadinessCheck = {
   timestamp: string;
 };
 
+export type ReadinessRedisClient = {
+  isReady: boolean;
+  ping(): Promise<string>;
+};
+
 export function isInternalRequestAuthorized(provided: string | undefined, expected: string | undefined): boolean {
   return Boolean(expected && provided && provided.length === expected.length && provided === expected);
 }
 
-export async function checkReadiness(redis: RedisClientType): Promise<ReadinessCheck> {
+export async function checkReadiness(redis: ReadinessRedisClient): Promise<ReadinessCheck> {
   let database: ReadinessCheck["database"] = "down";
   let redisStatus: ReadinessCheck["redis"] = "down";
 
@@ -101,7 +105,7 @@ export async function collectOperationalMetrics(): Promise<Record<string, number
   };
 }
 
-export function registerProductionReadinessRoutes(app: Express, redis: RedisClientType): void {
+export function registerProductionReadinessRoutes(app: Express, redis: ReadinessRedisClient): void {
   app.get("/api/health/live", (_req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
 
   app.get("/api/health/ready", async (_req, res) => {
