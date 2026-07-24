@@ -1,0 +1,11 @@
+node_modules
+.git
+.github
+.env
+.env.*
+!.env.example
+coverage
+dist
+.expo
+*.log
+pnpm-lock.yaml
