@@ -10,130 +10,62 @@ import { createContext } from "./context";
 import webhookRoutes from "../webhooks";
 import paymentsRoutes from "../payments";
 import paymentIntentRoutes from "../gateway/payment-intents/paymentIntent.routes";
+import paymentSessionRoutes from "../gateway/payment-sessions/paymentSession.routes";
 import paysuiteWebhookRoutes from "../gateway/webhooks/paysuiteWebhook.routes";
 import { startOutboundWebhookProcessor } from "../gateway/webhooks/outboundWebhook.service";
 import { createStripeRouter } from "../routes/stripe.routes";
 import { startNotificationProcessor } from "../notifications";
-import {
-  mpesaSignatureMiddleware,
-  defaultMpesaSignatureConfig,
-  createSignatureAuditLogger,
-} from "../security/mpesaSignature.middleware";
+import { mpesaSignatureMiddleware, defaultMpesaSignatureConfig, createSignatureAuditLogger } from "../security/mpesaSignature.middleware";
 import * as db from "../db";
 import { correlationIdMiddleware } from "../compliance/correlationId.middleware";
 import { AuditTrailService } from "../compliance/auditTrail.service";
 import { ComplianceModeService } from "../compliance/complianceMode.service";
 import { registerCompliancePipelineMiddleware } from "../compliance/compliancePipeline.middleware";
 import { createClient } from "redis";
-import {
-  registerProductionReadinessRoutes,
-  startOperationalMaintenance,
-} from "../operations/productionReadiness";
+import { registerProductionReadinessRoutes, startOperationalMaintenance } from "../operations/productionReadiness";
 
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-    server.on("error", () => resolve(false));
-  });
-}
-
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
-    }
-  }
-  throw new Error(`No available port found starting from ${startPort}`);
-}
+function isPortAvailable(port: number): Promise<boolean> { return new Promise(resolve => { const server = net.createServer(); server.listen(port, () => server.close(() => resolve(true))); server.on("error", () => resolve(false)); }); }
+async function findAvailablePort(startPort = 3000): Promise<number> { for (let port = startPort; port < startPort + 20; port++) if (await isPortAvailable(port)) return port; throw new Error(`No available port found starting from ${startPort}`); }
 
 async function startServer() {
   const app = express();
   const server = createServer(app);
   await initDatabaseSchema();
-
   app.disable("x-powered-by");
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    if (origin && (process.env.NODE_ENV !== "production" || allowedOrigins.includes(origin))) {
-      res.header("Access-Control-Allow-Origin", origin);
-      res.header("Vary", "Origin");
-    }
+    const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "").split(",").map(v => v.trim()).filter(Boolean);
+    if (origin && (process.env.NODE_ENV !== "production" || allowedOrigins.includes(origin))) { res.header("Access-Control-Allow-Origin", origin); res.header("Vary", "Origin"); }
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header(
-      "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Idempotency-Key"
-    );
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Idempotency-Key");
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("X-Content-Type-Options", "nosniff");
     res.header("X-Frame-Options", "DENY");
     res.header("Referrer-Policy", "no-referrer");
-
-    if (req.method === "OPTIONS") {
-      res.sendStatus(204);
-      return;
-    }
+    if (req.method === "OPTIONS") return void res.sendStatus(204);
     next();
   });
-
-  app.use(
-    express.json({
-      limit: process.env.REQUEST_BODY_LIMIT ?? "1mb",
-      verify: (req: any, _res, buf) => {
-        req.rawBody = buf;
-      },
-    })
-  );
+  app.use(express.json({ limit: process.env.REQUEST_BODY_LIMIT ?? "1mb", verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
   app.use(express.urlencoded({ limit: process.env.REQUEST_BODY_LIMIT ?? "1mb", extended: true }));
 
-  const signatureAuditLogger = createSignatureAuditLogger(
-    async (event: string, details: Record<string, unknown>) => {
-      try {
-        await db.logTransaction({
-          paymentId: 0,
-          eventType: event,
-          details,
-          ipAddress: (details.ipAddress as string) || "unknown",
-          userAgent: "webhook-security",
-        });
-      } catch (error) {
-        console.error(`[SECURITY] Failed to log ${event}:`, error);
-      }
-    }
-  );
-
+  const signatureAuditLogger = createSignatureAuditLogger(async (event: string, details: Record<string, unknown>) => {
+    try { await db.logTransaction({ paymentId: 0, eventType: event, details, ipAddress: (details.ipAddress as string) || "unknown", userAgent: "webhook-security" }); }
+    catch (error) { console.error(`[SECURITY] Failed to log ${event}:`, error); }
+  });
   const mpesaMw = mpesaSignatureMiddleware(defaultMpesaSignatureConfig, signatureAuditLogger);
   app.use((req, res, next) => {
-    const excludedFromMpesaSignature =
-      req.originalUrl.startsWith("/webhooks/stripe") ||
-      req.originalUrl.startsWith("/webhooks/paysuite") ||
-      req.originalUrl.startsWith("/v1/") ||
-      req.originalUrl.startsWith("/api/health/") ||
-      req.originalUrl.startsWith("/internal/");
-
-    if (excludedFromMpesaSignature) return next();
+    const excluded = req.originalUrl.startsWith("/webhooks/stripe") || req.originalUrl.startsWith("/webhooks/paysuite") || req.originalUrl.startsWith("/v1/") || req.originalUrl.startsWith("/checkout/") || req.originalUrl.startsWith("/api/health/") || req.originalUrl.startsWith("/internal/");
+    if (excluded) return next();
     return mpesaMw(req, res, next);
   });
-
   app.use(correlationIdMiddleware);
 
   const redis = createClient({ url: process.env.REDIS_URL });
-  redis.on("error", (err) => console.error("Redis error:", err));
+  redis.on("error", err => console.error("Redis error:", err));
   await redis.connect();
   app.locals.redis = redis;
-
   const auditTrailService = new AuditTrailService(redis);
-  const complianceModeService = new ComplianceModeService(
-    auditTrailService,
-    process.env.COMPLIANCE_MODE === "true"
-  );
-
+  const complianceModeService = new ComplianceModeService(auditTrailService, process.env.COMPLIANCE_MODE === "true");
   registerCompliancePipelineMiddleware(app, auditTrailService, complianceModeService);
   registerProductionReadinessRoutes(app, redis);
 
@@ -142,67 +74,26 @@ async function startServer() {
   app.use("/webhooks", paysuiteWebhookRoutes);
   app.use("/payments", paymentsRoutes);
   app.use("/v1", paymentIntentRoutes);
-
-  const stripeRouter = createStripeRouter();
-  app.use("/", stripeRouter);
-
-  app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, timestamp: Date.now(), deprecated: true, use: "/api/health/ready" });
-  });
-
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({ router: appRouter, createContext })
-  );
+  app.use("/v1", paymentSessionRoutes);
+  app.use("/", paymentSessionRoutes);
+  app.use("/", createStripeRouter());
+  app.get("/api/health", (_req, res) => res.json({ ok: true, timestamp: Date.now(), deprecated: true, use: "/api/health/ready" }));
+  app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 
   const preferredPort = parseInt(process.env.PORT || "3000", 10);
   const port = process.env.NODE_ENV === "production" ? preferredPort : await findAvailablePort(preferredPort);
-  const outboundTimer = startOutboundWebhookProcessor(
-    Number(process.env.OUTBOUND_WEBHOOK_PROCESSOR_INTERVAL_MS ?? 5000)
-  );
-  const operationsTimer = startOperationalMaintenance(
-    Number(process.env.OPERATIONS_MAINTENANCE_INTERVAL_MS ?? 60000)
-  );
+  const outboundTimer = startOutboundWebhookProcessor(Number(process.env.OUTBOUND_WEBHOOK_PROCESSOR_INTERVAL_MS ?? 5000));
+  const operationsTimer = startOperationalMaintenance(Number(process.env.OPERATIONS_MAINTENANCE_INTERVAL_MS ?? 60000));
   startNotificationProcessor(60000);
-
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`[api] ${signal} received; starting graceful shutdown`);
-    clearInterval(outboundTimer);
-    clearInterval(operationsTimer);
-    const forceTimer = setTimeout(() => {
-      console.error("[api] graceful shutdown timeout exceeded");
-      process.exit(1);
-    }, Number(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS ?? 15000));
-    forceTimer.unref?.();
-
-    server.close(async (error) => {
-      try {
-        if (redis.isOpen) await redis.quit();
-      } catch (redisError) {
-        console.error("[api] Redis shutdown failed:", redisError);
-      }
-      clearTimeout(forceTimer);
-      if (error) {
-        console.error("[api] HTTP shutdown failed:", error);
-        process.exit(1);
-      }
-      console.log("[api] graceful shutdown complete");
-      process.exit(0);
-    });
+    if (shuttingDown) return; shuttingDown = true; console.log(`[api] ${signal} received; starting graceful shutdown`); clearInterval(outboundTimer); clearInterval(operationsTimer);
+    const forceTimer = setTimeout(() => { console.error("[api] graceful shutdown timeout exceeded"); process.exit(1); }, Number(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS ?? 15000)); forceTimer.unref?.();
+    server.close(async error => { try { if (redis.isOpen) await redis.quit(); } catch (redisError) { console.error("[api] Redis shutdown failed:", redisError); } clearTimeout(forceTimer); if (error) { console.error("[api] HTTP shutdown failed:", error); process.exit(1); } console.log("[api] graceful shutdown complete"); process.exit(0); });
   };
-
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
   process.once("SIGINT", () => void shutdown("SIGINT"));
-
-  server.listen(port, "0.0.0.0", () => {
-    console.log(`[api] server listening on port ${port}`);
-  });
+  server.listen(port, "0.0.0.0", () => console.log(`[api] server listening on port ${port}`));
 }
 
-startServer().catch((error) => {
-  console.error("[api] startup failed:", error);
-  process.exitCode = 1;
-});
+startServer().catch(error => { console.error("[api] startup failed:", error); process.exitCode = 1; });
