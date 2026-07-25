@@ -10,7 +10,6 @@ export type PaymentIntentStatus =
   | "expired";
 
 export type PaymentMethodType = "mpesa" | "emola" | "bank" | "card";
-
 export type ProviderCode = "paysuite" | "mock" | "mpesa_direct" | "emola_direct" | "bank_direct";
 
 export interface CreatePaymentIntentInput {
@@ -38,6 +37,11 @@ export interface PaymentIntent {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  expiresAt?: string;
+  paidAt?: string;
+  failedAt?: string;
+  cancelledAt?: string;
+  expiredAt?: string;
 }
 
 export interface ConfirmPaymentIntentInput {
