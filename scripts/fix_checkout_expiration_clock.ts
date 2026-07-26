@@ -18,7 +18,7 @@ const replacement = `  if (rows[0].status === "active") {
         and(
           eq(paymentSessions.id, id),
           eq(paymentSessions.status, "active"),
-          sql\`\${paymentSessions.expiresAt} <= NOW()\`
+          sql\`\${paymentSessions.expiresAt} <= (NOW() AT TIME ZONE 'UTC')\`
         )
       )
       .limit(1);
@@ -53,20 +53,31 @@ if (updated.includes(importOld)) {
   throw new Error("Import esperado do drizzle-orm não encontrado.");
 }
 
-if (updated.includes('sql`${paymentSessions.expiresAt} <= NOW()`')) {
-  console.log("A correção do relógio de expiração já está aplicada.");
+const utcComparison = "sql`${paymentSessions.expiresAt} <= (NOW() AT TIME ZONE 'UTC')`";
+const localComparison = "sql`${paymentSessions.expiresAt} <= NOW()`";
+
+if (updated.includes(utcComparison)) {
+  console.log("A comparação UTC de expiração já está aplicada.");
   process.exit(0);
 }
 
-const startMarker = '  if (rows[0].status === "active" && rows[0].expiresAt.getTime() <= Date.now()) {';
-const endMarker = '  return toDomain(rows[0]);';
+if (updated.includes(localComparison)) {
+  updated = updated.replace(localComparison, utcComparison);
+  fs.writeFileSync(target, updated, "utf8");
+  console.log("Expiração corrigida para comparar timestamps em UTC.");
+  process.exit(0);
+}
+
+const startMarker =
+  '  if (rows[0].status === "active" && rows[0].expiresAt.getTime() <= Date.now()) {';
+const endMarker = "  return toDomain(rows[0]);";
 const start = updated.indexOf(startMarker);
 const end = updated.indexOf(endMarker, start === -1 ? 0 : start);
 
 if (start === -1 || end === -1 || end <= start) {
-  throw new Error("Bloco antigo de expiração não encontrado; nenhum ficheiro foi alterado.");
+  throw new Error("Bloco de expiração não encontrado; nenhum ficheiro foi alterado.");
 }
 
 updated = updated.slice(0, start) + replacement + updated.slice(end);
 fs.writeFileSync(target, updated, "utf8");
-console.log("Expiração corrigida para usar o relógio do PostgreSQL.");
+console.log("Expiração corrigida para comparar timestamps em UTC.");
