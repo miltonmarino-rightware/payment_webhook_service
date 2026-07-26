@@ -22,6 +22,28 @@ export const merchantStatusEnum = pgEnum("merchant_status", ["active", "suspende
 export const outboundWebhookStatusEnum = pgEnum("outbound_webhook_status", ["queued", "delivering", "retrying", "delivered", "dead_letter"]);
 export const paymentSessionStatusEnum = pgEnum("payment_session_status", ["active", "completed", "cancelled", "expired"]);
 
+export type MerchantBranding = {
+  displayName?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+  accentColor?: string;
+};
+
+export type MerchantCheckoutConfig = {
+  allowedPaymentMethods?: Array<"mpesa" | "emola" | "bank" | "card">;
+  defaultLocale?: string;
+  defaultSessionTtlSeconds?: number;
+};
+
+export type PaymentSessionItem = {
+  id: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  description?: string;
+  imageUrl?: string;
+};
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(), openId: varchar("openId", { length: 64 }).notNull().unique(), name: text("name"), email: varchar("email", { length: 320 }), loginMethod: varchar("loginMethod", { length: 64 }), role: userRoleEnum("role").default("user").notNull(), createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(), lastSignedIn: timestamp("lastSignedIn", { withTimezone: false }).defaultNow().notNull(),
 });
@@ -29,7 +51,14 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 export const merchants = pgTable("merchants", {
-  id: varchar("id", { length: 128 }).primaryKey(), name: varchar("name", { length: 160 }).notNull(), status: merchantStatusEnum("status").notNull().default("active"), createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(),
+  id: varchar("id", { length: 128 }).primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  status: merchantStatusEnum("status").notNull().default("active"),
+  branding: jsonb("branding").$type<MerchantBranding>().notNull().default({}),
+  checkoutConfig: jsonb("checkoutConfig").$type<MerchantCheckoutConfig>().notNull().default({}),
+  allowedRedirectOrigins: jsonb("allowedRedirectOrigins").$type<string[]>().notNull().default([]),
+  createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(),
 });
 
 export const merchantApiKeys = pgTable("merchant_api_keys", {
@@ -57,7 +86,21 @@ export type PaymentIntentRecord = typeof paymentIntents.$inferSelect;
 export type InsertPaymentIntent = typeof paymentIntents.$inferInsert;
 
 export const paymentSessions = pgTable("payment_sessions", {
-  id: varchar("id", { length: 80 }).primaryKey(), paymentIntentId: varchar("paymentIntentId", { length: 64 }).notNull().unique().references(() => paymentIntents.id), merchantId: varchar("merchantId", { length: 128 }).notNull().references(() => merchants.id), reference: varchar("reference", { length: 128 }).notNull(), status: paymentSessionStatusEnum("status").notNull().default("active"), product: jsonb("product").$type<{ id: string; name: string; quantity: number; unitPrice: number }>().notNull(), customer: jsonb("customer").$type<{ name: string; email: string; phone: string; country?: string; city?: string }>().notNull(), returnUrl: varchar("returnUrl", { length: 1024 }).notNull(), cancelUrl: varchar("cancelUrl", { length: 1024 }).notNull(), locale: varchar("locale", { length: 16 }).notNull().default("pt-MZ"), createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(), expiresAt: timestamp("expiresAt", { withTimezone: false }).notNull(), completedAt: timestamp("completedAt", { withTimezone: false }), cancelledAt: timestamp("cancelledAt", { withTimezone: false }),
+  id: varchar("id", { length: 80 }).primaryKey(),
+  paymentIntentId: varchar("paymentIntentId", { length: 64 }).notNull().unique().references(() => paymentIntents.id),
+  merchantId: varchar("merchantId", { length: 128 }).notNull().references(() => merchants.id),
+  reference: varchar("reference", { length: 128 }).notNull(),
+  status: paymentSessionStatusEnum("status").notNull().default("active"),
+  items: jsonb("items").$type<PaymentSessionItem[]>().notNull(),
+  customer: jsonb("customer").$type<{ name: string; email: string; phone: string; country?: string; city?: string }>().notNull(),
+  returnUrl: varchar("returnUrl", { length: 1024 }).notNull(),
+  cancelUrl: varchar("cancelUrl", { length: 1024 }).notNull(),
+  locale: varchar("locale", { length: 16 }).notNull().default("pt-MZ"),
+  createdAt: timestamp("createdAt", { withTimezone: false }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: false }).defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt", { withTimezone: false }).notNull(),
+  completedAt: timestamp("completedAt", { withTimezone: false }),
+  cancelledAt: timestamp("cancelledAt", { withTimezone: false }),
 }, (table) => [uniqueIndex("payment_sessions_merchant_reference_unique").on(table.merchantId, table.reference)]);
 export type PaymentSessionRecord = typeof paymentSessions.$inferSelect;
 export type InsertPaymentSession = typeof paymentSessions.$inferInsert;
