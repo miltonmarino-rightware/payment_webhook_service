@@ -8,36 +8,31 @@ const target = path.resolve(
 
 const source = fs.readFileSync(target, "utf8");
 
-const oldFragment = `? \`<form method="post" action="/checkout/\${escapeHtml(
-            session.id
-          )}/confirm"><div class="methods">\${renderMethods(
-            session
-          )}</div><div class="field"><label for="customerPhone">Número de pagamento</label><input id="customerPhone" name="customerPhone" inputmode="tel" autocomplete="tel" value="\${escapeHtml(
-            session.customer.phone
-          )}" placeholder="258840000000" required></div><div class="actions"><button class="btn primary" type="submit">Confirmar pagamento</button></form><form method="post" action="/checkout/\${escapeHtml(
-            session.id
-          )}/cancel"><button class="btn secondary" type="submit">Cancelar</button></form></div>\``;
+if (source.includes('id="cancel-payment-form"')) {
+  console.log("A correção do botão Cancelar já está aplicada.");
+  process.exit(0);
+}
 
-const newFragment = `? \`<form method="post" action="/checkout/\${escapeHtml(
-            session.id
-          )}/confirm"><div class="methods">\${renderMethods(
-            session
-          )}</div><div class="field"><label for="customerPhone">Número de pagamento</label><input id="customerPhone" name="customerPhone" inputmode="tel" autocomplete="tel" value="\${escapeHtml(
-            session.customer.phone
-          )}" placeholder="258840000000" required></div><div class="actions"><button class="btn primary" type="submit">Confirmar pagamento</button><button class="btn secondary" type="submit" form="cancel-payment-form">Cancelar</button></div></form><form id="cancel-payment-form" method="post" action="/checkout/\${escapeHtml(
-            session.id
-          )}/cancel"></form>\``;
+const brokenFragment = /<div class="actions"><button class="btn primary" type="submit">Confirmar pagamento<\/button><\/form><form method="post" action="\/checkout\/\$\{escapeHtml\([\s\S]*?session\.id[\s\S]*?\)\}\/cancel"><button class="btn secondary" type="submit">Cancelar<\/button><\/form><\/div>/;
 
-if (!source.includes(oldFragment)) {
-  if (source.includes('id="cancel-payment-form"')) {
-    console.log("A correção do botão Cancelar já está aplicada.");
-    process.exit(0);
-  }
-
+const match = source.match(brokenFragment);
+if (!match) {
   throw new Error(
-    "Não foi possível localizar o fragmento antigo do checkout. Nenhum ficheiro foi alterado."
+    "Não foi possível localizar com segurança o HTML defeituoso do checkout. Nenhum ficheiro foi alterado."
   );
 }
 
-fs.writeFileSync(target, source.replace(oldFragment, newFragment), "utf8");
+const cancelActionMatch = match[0].match(
+  /action="(\/checkout\/\$\{escapeHtml\([\s\S]*?session\.id[\s\S]*?\)\}\/cancel)"/
+);
+if (!cancelActionMatch?.[1]) {
+  throw new Error(
+    "A action do formulário de cancelamento não pôde ser extraída com segurança. Nenhum ficheiro foi alterado."
+  );
+}
+
+const replacement = `<div class="actions"><button class="btn primary" type="submit">Confirmar pagamento</button><button class="btn secondary" type="submit" form="cancel-payment-form">Cancelar</button></div></form><form id="cancel-payment-form" method="post" action="${cancelActionMatch[1]}"></form>`;
+
+const updated = source.replace(brokenFragment, replacement);
+fs.writeFileSync(target, updated, "utf8");
 console.log("Botão Cancelar corrigido com formulários HTML independentes.");
