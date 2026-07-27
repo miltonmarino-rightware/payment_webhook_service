@@ -307,9 +307,9 @@ router.get("/checkout/:id", async (req, res) => {
             session
           )}</div><div class="field"><label for="customerPhone">Número de pagamento</label><input id="customerPhone" name="customerPhone" inputmode="tel" autocomplete="tel" value="${escapeHtml(
             session.customer.phone
-          )}" placeholder="258840000000" required></div><div class="actions"><button class="btn primary" type="submit">Confirmar pagamento</button></form><form method="post" action="/checkout/${escapeHtml(
+          )}" placeholder="258840000000" required></div><div class="actions"><button class="btn primary" type="submit">Confirmar pagamento</button><button class="btn secondary" type="submit" form="cancel-payment-form">Cancelar</button></div></form><form id="cancel-payment-form" method="post" action="/checkout/${escapeHtml(
             session.id
-          )}/cancel"><button class="btn secondary" type="submit">Cancelar</button></form></div>`
+          )}/cancel"></form>`
         : status === "processing"
           ? `<div class="notice"><div class="spinner"></div><strong>Estamos a aguardar a confirmação.</strong><p>O estado será atualizado automaticamente.</p></div>`
           : `<div class="notice ${status === "succeeded" ? "success" : "error"}"><strong>${escapeHtml(

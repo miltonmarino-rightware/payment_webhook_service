@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   merchants,
   paymentIntents,
@@ -307,24 +307,38 @@ export async function getPaymentSession(
   const rows = await db.select().from(paymentSessions).where(where).limit(1);
   if (!rows[0]) return null;
 
-  if (rows[0].status === "active" && rows[0].expiresAt.getTime() <= Date.now()) {
-    const now = new Date();
-    await db.transaction(async (tx) => {
-      await tx
-        .update(paymentSessions)
-        .set({ status: "expired", updatedAt: now })
-        .where(eq(paymentSessions.id, id));
-      await tx
-        .update(paymentIntents)
-        .set({ status: "expired", expiredAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(paymentIntents.id, rows[0].paymentIntentId),
-            eq(paymentIntents.status, "requires_payment_method")
-          )
-        );
-    });
-    rows[0].status = "expired";
+  if (rows[0].status === "active") {
+    const expired = await db
+      .select({ id: paymentSessions.id })
+      .from(paymentSessions)
+      .where(
+        and(
+          eq(paymentSessions.id, id),
+          eq(paymentSessions.status, "active"),
+          sql`${paymentSessions.expiresAt} <= (NOW() AT TIME ZONE 'UTC')`
+        )
+      )
+      .limit(1);
+
+    if (expired[0]) {
+      const now = new Date();
+      await db.transaction(async (tx) => {
+        await tx
+          .update(paymentSessions)
+          .set({ status: "expired", updatedAt: now })
+          .where(and(eq(paymentSessions.id, id), eq(paymentSessions.status, "active")));
+        await tx
+          .update(paymentIntents)
+          .set({ status: "expired", expiredAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(paymentIntents.id, rows[0].paymentIntentId),
+              eq(paymentIntents.status, "requires_payment_method")
+            )
+          );
+      });
+      rows[0].status = "expired";
+    }
   }
   return toDomain(rows[0]);
 }
