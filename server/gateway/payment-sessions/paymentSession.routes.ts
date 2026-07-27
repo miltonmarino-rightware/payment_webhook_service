@@ -293,37 +293,37 @@ router.get("/checkout/:id", async (req, res) => {
       stateTitle
     )}</h1><p class="lead">${escapeHtml(
       status === "requires_payment_method"
-        ? "Escolha o método e confirme os dados antes de continuar."
+        ? "Escolha o método de pagamento e confirme os dados para continuar."
         : status === "processing"
           ? "Confirme a solicitação no seu telemóvel. Não feche esta página."
           : status === "succeeded"
-            ? "A transação foi confirmada e comunicada ao merchant."
-            : "A sessão já não aceita novas confirmações."
+            ? "A transação foi confirmada e comunicada ao sistema onde iniciou a compra."
+            : "Esta sessão já não aceita novas confirmações."
     )}</p>${
       status === "requires_payment_method"
         ? `<form method="post" action="/checkout/${escapeHtml(
             session.id
           )}/confirm"><div class="methods">${renderMethods(
             session
-          )}</div><div class="field"><label for="customerPhone">Número de pagamento</label><input id="customerPhone" name="customerPhone" inputmode="tel" autocomplete="tel" value="${escapeHtml(
+          )}</div><div class="field"><label for="customerPhone">Número associado ao pagamento</label><input id="customerPhone" name="customerPhone" inputmode="tel" autocomplete="tel" value="${escapeHtml(
             session.customer.phone
-          )}" placeholder="258840000000" required></div><div class="actions"><button class="btn primary" type="submit">Confirmar pagamento</button><button class="btn secondary" type="submit" form="cancel-payment-form">Cancelar</button></div></form><form id="cancel-payment-form" method="post" action="/checkout/${escapeHtml(
+          )}" placeholder="258840000000" required></div><div class="actions"><button class="btn primary" type="submit">Confirmar pagamento</button><button class="btn secondary" type="submit" form="cancel-payment-form">Cancelar e voltar</button></div></form><form id="cancel-payment-form" method="post" action="/checkout/${escapeHtml(
             session.id
           )}/cancel"></form>`
         : status === "processing"
-          ? `<div class="notice"><div class="spinner"></div><strong>Estamos a aguardar a confirmação.</strong><p>O estado será atualizado automaticamente.</p></div>`
+          ? `<div class="notice"><div class="spinner"></div><strong>Estamos a aguardar a confirmação do operador.</strong><p>O estado será atualizado automaticamente.</p></div>`
           : `<div class="notice ${status === "succeeded" ? "success" : "error"}"><strong>${escapeHtml(
               stateTitle
             )}</strong><p>${escapeHtml(
               status === "succeeded"
-                ? "Pode regressar ao sistema onde iniciou a compra."
+                ? "O pagamento foi concluído com sucesso. Pode regressar ao sistema onde iniciou a compra."
                 : status === "expired"
-                  ? "Solicite uma nova sessão de pagamento ao merchant."
-                  : "Regresse ao merchant para rever ou repetir o pedido."
+                  ? "Esta sessão já não está disponível. Solicite uma nova sessão de pagamento ao sistema onde iniciou a compra."
+                  : "Regresse ao sistema onde iniciou a compra para rever ou repetir o pedido."
             )}</p></div><div class="actions"><a class="btn primary" href="${escapeHtml(
               status === "cancelled" ? session.cancelUrl : session.returnUrl
-            )}">Continuar</a></div>`
-    }<p class="footer">O GATEAWAY nunca solicita PIN, palavra-passe ou código secreto.</p></section><aside class="panel summary"><span class="eyebrow">Resumo</span><div class="amount">${escapeHtml(
+            )}">Voltar ao sistema</a></div>`
+    }<p class="footer">O GATEAWAY nunca solicita PIN, palavra-passe ou código de confirmação.</p></section><aside class="panel summary"><span class="eyebrow">Resumo</span><div class="amount">${escapeHtml(
       amount
     )}</div><div class="items">${renderItems(
       session
@@ -338,7 +338,7 @@ router.get("/checkout/:id", async (req, res) => {
         dateStyle: "short",
         timeStyle: "short",
       }).format(new Date(session.expiresAt))
-    )}</strong></div></div><div class="summary-footer">Processado com segurança pelo GATEAWAY. O merchant continua responsável pelo produto, serviço, reserva ou encomenda.</div></aside></main>${
+    )}</strong></div></div><div class="summary-footer">Pagamento processado com segurança pelo GATEAWAY. A empresa onde iniciou a compra continua responsável pelo produto, serviço, reserva ou encomenda.</div></aside></main>${
       status === "processing"
         ? `<script>setInterval(async()=>{const response=await fetch('/checkout/${escapeHtml(
             session.id
